@@ -34,7 +34,7 @@ constexpr uint8_t kBatteryAdcPin = 1;
 constexpr uint8_t kBatteryMeasurePin = 37;
 
 constexpr uint32_t kDebounceMs = 30;
-constexpr uint32_t kClickWindowMs = 420;
+constexpr uint32_t kClickWindowMs = 550;
 constexpr uint32_t kLongPressMs = 900;
 
 Preferences display_preferences;
@@ -106,8 +106,8 @@ constexpr MenuItem kGpsMenu[] = {
     {"Back", kBack, false},
 };
 
-// Transmit-capable entries require a second explicit double-click/hold on a
-// warning screen. They are never started during boot or passive validation.
+// Transmit-capable entries require a second explicit long-press selection on
+// a warning screen. They are never started during boot or passive validation.
 constexpr MenuItem kTransmitMenu[] = {
     {"Random beacons", WIFI_ATTACK_BEACON_SPAM, true},
     {"Rickroll beacons", WIFI_ATTACK_RICK_ROLL, true},
@@ -235,7 +235,19 @@ void HeltecStandalone::ready() {
 void HeltecStandalone::main(uint32_t now) {
   pollButton(now);
 
+  // Gesture dispatch can render synchronously and record an interaction using
+  // a newer millis() value than the timestamp supplied by loop(). Refresh the
+  // clock before calculating idle time; otherwise unsigned subtraction treats
+  // that future interaction as almost 49 days of inactivity and blanks the
+  // OLED immediately after the menu selection changes.
+  now = millis();
+
+  // Never blank between the physical edge and the completed single/double-click
+  // gesture. This also prevents the timeout from winning the debounce window.
+  const bool interaction_in_progress =
+      raw_pressed || stable_pressed || click_count > 0;
   if (!screen_blanked && screen_timeout_seconds > 0 &&
+      !interaction_in_progress &&
       now - last_interaction >= static_cast<uint32_t>(screen_timeout_seconds) * 1000UL) {
     blankScreen();
   }
@@ -253,6 +265,10 @@ void HeltecStandalone::pollButton(uint32_t now) {
   if (pressed != raw_pressed) {
     raw_pressed = pressed;
     raw_changed_at = now;
+    // A raw edge is user activity even before it survives debounce. Without
+    // this update, a press arriving at the timeout boundary can lose to the
+    // blanking check in main().
+    last_interaction = now;
   }
 
   if (now - raw_changed_at >= kDebounceMs && stable_pressed != raw_pressed) {
@@ -295,7 +311,11 @@ void HeltecStandalone::pollButton(uint32_t now) {
     dispatch(Gesture::Long);
   }
 
-  if (!stable_pressed && click_count > 0 && now >= click_deadline) {
+  // A second physical press can begin just before the click deadline while its
+  // debounced state is still false. Do not finalize the pending click until
+  // both the raw and stable inputs are released, or that second tap can be
+  // misclassified as a single.
+  if (!raw_pressed && !stable_pressed && click_count > 0 && now >= click_deadline) {
     const uint8_t completed = click_count;
     click_count = 0;
     if (completed == 1)
@@ -312,13 +332,16 @@ void HeltecStandalone::dispatch(Gesture gesture) {
       nextItem();
       break;
     case Gesture::Double:
-      selectItem();
+      goBack(false);
       break;
     case Gesture::Long:
-      goBack(true);
+      selectItem();
       break;
   }
   render();
+  // Some scan initializers are synchronous. Measure inactivity from when the
+  // requested action and its first render finish, not from before dispatch.
+  last_interaction = millis();
 }
 
 void HeltecStandalone::nextItem() {
@@ -554,7 +577,7 @@ void HeltecStandalone::renderMenu() {
   if (notice.length() && millis() < notice_until)
     oled.drawStr(0, 63, notice.c_str());
   else
-    oled.drawStr(0, 63, "1x next 2x select hold back");
+    oled.drawStr(0, 63, "1x next 2x back hold select");
   oled.sendBuffer();
 }
 
@@ -588,7 +611,7 @@ void HeltecStandalone::renderRunning() {
     line = "Tags " + String(airtags ? airtags->size() : 0) +
            "  Flip " + String(flippers ? flippers->size() : 0);
     oled.drawStr(0, 46, line.c_str());
-    oled.drawStr(0, 57, "Long press: stop");
+    oled.drawStr(0, 57, "2x: stop / back");
   } else {
     line = "AP " + String(access_points ? access_points->size() : 0) +
            " B " + String(num_beacon) + " P " + String(num_probe);
@@ -596,7 +619,7 @@ void HeltecStandalone::renderRunning() {
     line = "D " + String(num_deauth) + " E " + String(num_eapol) +
            " RAW " + String(wifi_scan_obj.mgmt_frames + wifi_scan_obj.data_frames);
     oled.drawStr(0, 46, line.c_str());
-    oled.drawStr(0, 57, "Long press: stop");
+    oled.drawStr(0, 57, "2x: stop / back");
   }
   oled.sendBuffer();
 }
@@ -611,8 +634,8 @@ void HeltecStandalone::renderConfirm() {
   oled.drawStr(0, 37, power_action ?
       (pending_action == kSleep ? "PRG wakes + restarts" : "RST/power cycle wakes") :
       "Authorized testing only");
-  oled.drawStr(0, 49, "2x: confirm");
-  oled.drawStr(0, 61, "1x / long: cancel");
+  oled.drawStr(0, 49, "Hold: confirm");
+  oled.drawStr(0, 61, "1x / 2x: cancel");
   oled.sendBuffer();
 }
 
@@ -636,8 +659,8 @@ void HeltecStandalone::renderHelp() {
   drawHeader("PRG BUTTON");
   oled.setFont(u8g2_font_5x8_tf);
   oled.drawStr(0, 23, "1x      next item");
-  oled.drawStr(0, 33, "2x      select/start");
-  oled.drawStr(0, 43, "Long    back/stop/home");
+  oled.drawStr(0, 33, "2x      back / stop");
+  oled.drawStr(0, 43, "Long    select / start");
   oled.drawStr(0, 53, "Long press = 0.9 sec");
   oled.drawStr(0, 63, "First press wakes screen");
   oled.sendBuffer();
