@@ -7,10 +7,10 @@ It keeps Marauder's serial CLI while adding a compact standalone menu.
 ## Button controls
 
 - One click: next menu item
-- Two clicks: select or start
-- Hold for 0.9 seconds: back, stop the running action, or return home
+- Two clicks: return to the previous menu or stop the running action
+- Hold for 0.9 seconds: select, start, or confirm
 
-Clicks are collected for 420 ms so a single click is not acted on before a
+Clicks are collected for 550 ms so a single click is not acted on before a
 possible second click arrives. Holding PRG during reset still invokes
 the ESP32-S3 ROM bootloader because GPIO0 is a hardware strap pin.
 
