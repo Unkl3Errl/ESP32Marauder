@@ -5,3 +5,6 @@
 esp32_marauder/.vscode/settings.json
 __pycache__/
 *.pyc
+.pio/
+.platformio-venv/
+.DS_Store
