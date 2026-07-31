@@ -37,6 +37,7 @@
   //#define MARAUDER_MINI_V3
   //#define MARAUDER_M5_NANO_C6
   //#define DUAL_MINI_C5
+  //#define MARAUDER_HELTEC_V4
   //// END BOARD TARGETS
 
   #define JSON_SETTING_SIZE 2048
@@ -112,6 +113,8 @@
     #define HARDWARE_NAME "Dual Mini C5"
   #elif defined(MARAUDER_M5_NANO_C6)
     #define HARDWARE_NAME "M5 Nano C6"
+  #elif defined(MARAUDER_HELTEC_V4)
+    #define HARDWARE_NAME "Heltec WiFi LoRa 32 V4"
   #else
     #define HARDWARE_NAME "ESP32"
   #endif
@@ -604,6 +607,15 @@
     #define HAS_NIMBLE_2
     #define HAS_IDF_3
     //#define HAS_DIRECT_UPLOAD
+  #endif
+
+  // Heltec WiFi LoRa 32 V4: the built-in 128x64 OLED and GPIO0 user
+  // button are handled by HeltecStandalone instead of Marauder's TFT UI.
+  #ifdef MARAUDER_HELTEC_V4
+    #define HAS_BT
+    #define HAS_GPS
+    #define HAS_PSRAM
+    #define HAS_HELTEC_STANDALONE
   #endif
   //// END BOARD FEATURES
 
@@ -2806,6 +2818,12 @@
       #define GPS_SERIAL_INDEX 1
       #define GPS_TX 14
       #define GPS_RX 13
+    #elif defined(MARAUDER_HELTEC_V4)
+      #define GPS_SERIAL_INDEX 1
+      // Marauder names these from the GPS module's perspective. GPS_TX is
+      // therefore the ESP32 receive pin and GPS_RX is the ESP32 transmit pin.
+      #define GPS_TX 39
+      #define GPS_RX 38
     #endif
   #else
     #define mac_history_len 100

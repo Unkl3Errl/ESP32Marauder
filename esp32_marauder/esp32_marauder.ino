@@ -7,6 +7,10 @@ https://www.online-utility.org/image/convert/to/XBM
 
 #include "configs.h"
 
+#ifdef HAS_HELTEC_STANDALONE
+  #include "HeltecStandalone.h"
+#endif
+
 #ifndef HAS_SCREEN
   #define MenuFunctions_h
   #define Display_h
@@ -74,6 +78,10 @@ EvilPortal evil_portal_obj;
 Buffer buffer_obj;
 Settings settings_obj;
 CommandLine cli_obj;
+
+#ifdef HAS_HELTEC_STANDALONE
+  HeltecStandalone heltec_ui_obj;
+#endif
 
 #ifdef HAS_GPS
   GpsInterface gps_obj;
@@ -228,11 +236,19 @@ void setup()
     esp_log_level_set("*", ESP_LOG_NONE);
   #endif
   
-  #ifndef HAS_IDF_3
+  // BOARD_HAS_PSRAM makes the Arduino core initialize the Heltec V4's PSRAM
+  // before setup(). Calling the low-level initializer a second time can panic
+  // the ESP32-S3 and leave it in a watchdog-reset loop.
+  #if !defined(HAS_IDF_3) && !defined(MARAUDER_HELTEC_V4)
     esp_spiram_init();
   #endif
 
   Serial.begin(115200);
+
+  #ifdef HAS_HELTEC_STANDALONE
+    heltec_ui_obj.begin();
+    heltec_ui_obj.setBootStatus("Core startup");
+  #endif
 
   #ifdef HAS_ACT_LED
     pinMode(ACT_LED_PIN, OUTPUT);
@@ -240,8 +256,10 @@ void setup()
     digitalWrite(ACT_LED_PIN, LOW);
   #endif
 
-  while(!Serial)
-    delay(10);
+  #ifndef HAS_HELTEC_STANDALONE
+    while(!Serial)
+      delay(10);
+  #endif
 
   #ifdef HAS_C5_SD
     sharedSPI.begin(SD_SCK, SD_MISO, SD_MOSI);
@@ -339,6 +357,10 @@ void setup()
 
   settings_obj.begin();
 
+  #ifdef HAS_HELTEC_STANDALONE
+    heltec_ui_obj.setBootStatus("Loading settings");
+  #endif
+
   const char* type = settings_obj.getSettingType("wu");
 
   if (type == nullptr || type[0] == '\0') {
@@ -358,6 +380,10 @@ void setup()
   #endif
 
   wifi_scan_obj.RunSetup();
+
+  #ifdef HAS_HELTEC_STANDALONE
+    heltec_ui_obj.setBootStatus("WiFi ready");
+  #endif
 
   #ifdef HAS_SCREEN
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -389,6 +415,10 @@ void setup()
     gps_obj.begin();
   #endif
 
+  #ifdef HAS_HELTEC_STANDALONE
+    heltec_ui_obj.setBootStatus("GPS checked");
+  #endif
+
   #ifdef HAS_SCREEN  
     display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
   #endif
@@ -413,6 +443,10 @@ void setup()
   wifi_scan_obj.StartScan(WIFI_SCAN_OFF);
   
   cli_obj.RunSetup();
+
+  #ifdef HAS_HELTEC_STANDALONE
+    heltec_ui_obj.ready();
+  #endif
 }
 
 
@@ -449,6 +483,10 @@ void loop()
 
   #ifdef HAS_GPS
     gps_obj.main();
+  #endif
+
+  #ifdef HAS_HELTEC_STANDALONE
+    heltec_ui_obj.main(currentTime);
   #endif
 
   // Save buffer to SD and/or serial
