@@ -55,6 +55,25 @@ Then, from this directory:
 .platformio-venv/bin/pio run -e heltec_v4
 ```
 
+Create the same verified app-only and merged images produced by CI:
+
+```sh
+.platformio-venv/bin/python tools/package_heltec_v4.py \
+  --boot-app0 "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
+```
+
+The output under `artifacts/heltec_v4/` contains:
+
+- `ESP32Marauder-Heltec-V4.bin`, the complete image flashed at `0x0`.
+- `ESP32Marauder-Heltec-V4-app.bin`, the application image flashed at
+  `0x10000` when the existing partition layout is already installed.
+- `SHA256SUMS.txt` for both images.
+
+The packaging check verifies the bootloader at `0x0`, partition table at
+`0x8000`, OTA metadata at `0xe000`, and application at `0x10000` byte-for-byte.
+GitHub Actions runs this build on Heltec fork pushes, pull requests, version
+tags, and manual dispatches, then retains the verified artifacts for 14 days.
+
 To upload through native USB, set the current port explicitly:
 
 ```sh

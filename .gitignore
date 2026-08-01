@@ -7,4 +7,6 @@ __pycache__/
 *.pyc
 .pio/
 .platformio-venv/
+artifacts/
+__pycache__/
 .DS_Store
