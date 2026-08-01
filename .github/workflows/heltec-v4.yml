@@ -1,0 +1,46 @@
+name: Build Heltec WiFi LoRa 32 V4
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+    tags: ["v*-heltec.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies
+        run: python -m pip install platformio==6.1.19 esptool==4.9.0
+
+      - name: Build Heltec V4 firmware
+        run: pio run -e heltec_v4
+
+      - name: Package and verify flash images
+        run: |
+          python tools/package_heltec_v4.py \
+            --boot-app0 "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
+
+      - name: Upload verified firmware artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ESP32Marauder-Heltec-V4
+          path: artifacts/heltec_v4/*
+          retention-days: 14
+          if-no-files-found: error
