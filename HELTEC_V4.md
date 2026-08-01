@@ -63,3 +63,13 @@ To upload through native USB, set the current port explicitly:
 
 The target does not initialize the SX1262 LoRa radio. It is left dormant; the
 firmware uses only the ESP32-S3's 2.4 GHz Wi-Fi/BLE radio.
+
+## Android companion
+
+The canonical Android companion is
+[`Unkl3Errl/HeltecController`](https://github.com/Unkl3Errl/HeltecController).
+It identifies Marauder through read-only USB `info` and `help` responses, then
+enables only the Marauder interface. It provides guarded command shortcuts,
+structured AP/BLE results, CSV export, and persistent USB session history. The
+same package can identify a Bruce-flashed board and expose its separate
+BruceNet/USB interface instead.
