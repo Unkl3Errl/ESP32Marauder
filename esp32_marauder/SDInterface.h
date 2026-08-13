@@ -9,7 +9,13 @@
 #ifdef HAS_C5_SD
   #include "FS.h"
 #endif
-#include "SD.h"
+#ifdef HAS_VIRTUAL_SD
+  #include "FFat.h"
+  #define MARAUDER_STORAGE FFat
+#else
+  #include "SD.h"
+  #define MARAUDER_STORAGE SD
+#endif
 #ifdef HAS_C5_SD
   #include "SPI.h"
 #endif
@@ -68,6 +74,7 @@ class SDInterface {
     void runUpdate(String file_name = "");
     void performUpdate(Stream &updateSource, size_t updateSize);
     bool removeFile(String file_path);
+    bool handleStorageCommand(LinkedList<String>& args);
 };
 
 #endif

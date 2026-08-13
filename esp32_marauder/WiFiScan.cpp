@@ -1809,7 +1809,7 @@ void WiFiScan::RunSetup() {
 
   #ifdef HAS_SD
     if (sd_obj.supported) {
-      if (SD.exists("/wigle_api_name.txt")) {
+      if (MARAUDER_STORAGE.exists("/wigle_api_name.txt")) {
         String contents = "";
         api_settings_file = sd_obj.getFile("/wigle_api_name.txt");
         while (api_settings_file.available()) {
@@ -1833,7 +1833,7 @@ void WiFiScan::RunSetup() {
         api_settings_file.close();
       }
 
-      if (SD.exists("/wigle_api_token.txt")) {
+      if (MARAUDER_STORAGE.exists("/wigle_api_token.txt")) {
         String contents = "";
         api_settings_file = sd_obj.getFile("/wigle_api_token.txt");
         while (api_settings_file.available()) {
@@ -1858,7 +1858,7 @@ void WiFiScan::RunSetup() {
         api_settings_file.close();
       }
 
-      if (SD.exists("/wdg_key.txt")) {
+      if (MARAUDER_STORAGE.exists("/wdg_key.txt")) {
         String contents = "";
         api_settings_file = sd_obj.getFile("/wdg_key.txt");
         while (api_settings_file.available()) {
@@ -2797,6 +2797,7 @@ void WiFiScan::StopScan(uint8_t scan_mode) {
   #ifdef HAS_GPS
     gps_obj.disable_queue();
   #endif
+  buffer_obj.close();
 }
 
 void WiFiScan::getMAC(bool get_sta, uint8_t* mac) {
@@ -3234,7 +3235,7 @@ void WiFiScan::startPcap(const char* file_name) {
   buffer_obj.pcapOpen(
     file_name,
     #if defined(HAS_SD)
-      sd_obj.supported ? &SD :
+      sd_obj.supported ? &MARAUDER_STORAGE :
     #endif
     NULL,
     save_serial // Set with commandline options
@@ -3245,7 +3246,7 @@ void WiFiScan::startLog(const char* file_name) {
   buffer_obj.logOpen(
     file_name,
     #if defined(HAS_SD)
-      sd_obj.supported ? &SD :
+      sd_obj.supported ? &MARAUDER_STORAGE :
     #endif
     NULL,
     save_serial // Set with commandline options
@@ -3256,7 +3257,7 @@ void WiFiScan::startGPX(const char* file_name) {
   buffer_obj.gpxOpen(
     file_name,
     #if defined(HAS_SD)
-      sd_obj.supported ? &SD :
+      sd_obj.supported ? &MARAUDER_STORAGE :
     #endif
     NULL,
     save_serial // Set with commandline options
@@ -5736,10 +5737,10 @@ void WiFiScan::executeWarDrive() {
 void WiFiScan::openPoiFile() {
   #if defined(HAS_GPS) && defined(HAS_SD)
     int fileIndex = 0;
-    while (SD.exists("/wardrive_poi_" + String(fileIndex) + ".gpx"))
+    while (MARAUDER_STORAGE.exists("/wardrive_poi_" + String(fileIndex) + ".gpx"))
       fileIndex++;
     poiFileName = "/wardrive_poi_" + String(fileIndex) + ".gpx";
-    poiFile = SD.open(poiFileName, FILE_WRITE);
+    poiFile = MARAUDER_STORAGE.open(poiFileName, FILE_WRITE);
     if (poiFile) {
       poiFile.print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"ESP32Marauder\">\n");
       poiFile.close();
@@ -5753,7 +5754,7 @@ void WiFiScan::closePoiFile() {
   #if defined(HAS_GPS) && defined(HAS_SD)
     if (poiFileOpen) {
       if (poiCount > 0) {
-        poiFile = SD.open(poiFileName, FILE_APPEND);
+        poiFile = MARAUDER_STORAGE.open(poiFileName, FILE_APPEND);
         if (poiFile) {
           poiFile.print("</gpx>\n");
           poiFile.close();
@@ -5789,7 +5790,7 @@ void WiFiScan::tagPOI(const char* label) {
     datetime.replace(" ", "T");
     datetime += "Z";
 
-    poiFile = SD.open(poiFileName, FILE_APPEND);
+    poiFile = MARAUDER_STORAGE.open(poiFileName, FILE_APPEND);
     if (poiFile) {
       poiFile.print("  <wpt lat=\"" + gps_obj.getLat() + "\" lon=\"" + gps_obj.getLon() + "\">\n");
       poiFile.print("    <ele>" + String(gps_obj.getAlt(), 2) + "</ele>\n");
@@ -10874,12 +10875,12 @@ uint16_t WiFiScan::rssiToColor(int8_t rssi) {
 
 #ifdef HAS_DIRECT_UPLOAD
   bool WiFiScan::sidecarExists(String filePath, String service) {
-    return SD.exists(filePath + "." + service);
+    return MARAUDER_STORAGE.exists(filePath + "." + service);
   }
 
   void WiFiScan::writeSidecar(String filePath, String service) {
     String sidecarPath = filePath + "." + service;
-    File f = SD.open(sidecarPath, FILE_WRITE);
+    File f = MARAUDER_STORAGE.open(sidecarPath, FILE_WRITE);
     if (f) {
       f.println("uploaded=" + gps_obj.getDatetime());
       f.close();
@@ -10956,7 +10957,7 @@ uint16_t WiFiScan::rssiToColor(int8_t rssi) {
     #endif
     delay(100);
 
-    if (!SD.exists(filePath)) {
+    if (!MARAUDER_STORAGE.exists(filePath)) {
       #ifdef HAS_SCREEN
       display_obj.showCenterText(String(filePath + " not found").c_str(), TFT_HEIGHT / 2, true);
       delay(2000);
@@ -10976,7 +10977,7 @@ uint16_t WiFiScan::rssiToColor(int8_t rssi) {
       return false;
     }
 
-    File fileToUpload = SD.open(filePath);
+    File fileToUpload = MARAUDER_STORAGE.open(filePath);
     if (!fileToUpload) {
       #ifdef HAS_SCREEN
       display_obj.clearScreen();
@@ -11115,7 +11116,7 @@ uint16_t WiFiScan::rssiToColor(int8_t rssi) {
 
     delay(100);
 
-    if (!SD.exists(filePath)) {
+    if (!MARAUDER_STORAGE.exists(filePath)) {
       #ifdef HAS_SCREEN
       display_obj.clearScreen();
       display_obj.showCenterText(String(filePath + " not found").c_str(), TFT_HEIGHT / 2, true);
@@ -11125,7 +11126,7 @@ uint16_t WiFiScan::rssiToColor(int8_t rssi) {
       return false;
     }
 
-    File fileToUpload = SD.open(filePath);
+    File fileToUpload = MARAUDER_STORAGE.open(filePath);
     if (!fileToUpload) {
       #ifdef HAS_SCREEN
       display_obj.clearScreen();

@@ -216,7 +216,7 @@ void HeltecStandalone::setBootStatus(const char* status) {
   if (screen != Screen::Boot) return;
   oled.clearBuffer();
   oled.setFont(u8g2_font_6x10_tf);
-  oled.drawStr(0, 10, "MARAUDER / HELTEC V4");
+  oled.drawStr(0, 10, "MARAUDER");
   oled.drawHLine(0, 13, 128);
   oled.setFont(u8g2_font_5x8_tf);
   oled.drawStr(0, 29, "Starting firmware...");
@@ -713,7 +713,7 @@ uint8_t HeltecStandalone::menuSize() const {
 const char* HeltecStandalone::menuTitle() const {
   switch (screen) {
     case Screen::Root:
-      return "MARAUDER / HELTEC";
+      return "MARAUDER";
     case Screen::WiFi:
       return "WIFI TOOLS";
     case Screen::Bluetooth:

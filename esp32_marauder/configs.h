@@ -42,7 +42,7 @@
 
   #define JSON_SETTING_SIZE 2048
 
-  #define MARAUDER_VERSION "v1.14.1"
+  #define MARAUDER_VERSION "v1.14.1-mobile.3"
 
   #define GRAPH_REFRESH   100
 
@@ -616,6 +616,7 @@
     #define HAS_GPS
     #define HAS_PSRAM
     #define HAS_HELTEC_STANDALONE
+    #define HAS_SD
   #endif
   //// END BOARD FEATURES
 

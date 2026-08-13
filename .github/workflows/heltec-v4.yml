@@ -2,9 +2,9 @@ name: Build Heltec WiFi LoRa 32 V4
 
 on:
   pull_request:
-    branches: [master]
+    branches: [heltec-v4-full]
   push:
-    branches: [master]
+    branches: [heltec-v4-full]
     tags: ["v*-heltec.*"]
   workflow_dispatch:
 

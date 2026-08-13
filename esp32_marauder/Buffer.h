@@ -25,7 +25,9 @@ class Buffer {
     void append(wifi_promiscuous_pkt_t *packet, int len);
     void append(String log);
     void save();
+    void close();
     String getFileName();
+    bool isActiveFile(const String& path) const;
   private:
     void createFile(const char* name, bool is_pcap, bool is_gpx = false);
     void open(bool is_pcap);
@@ -37,6 +39,8 @@ class Buffer {
     void write(const uint8_t* buf, uint32_t len);
     void saveFs();
     void saveSerial();
+    void rotateFile();
+    void writePcapHeader(File& target);
     
     uint8_t* bufA;
     uint8_t* bufB;
@@ -49,9 +53,12 @@ class Buffer {
     bool saving = false; // currently saving onto the SD card
 
     String fileName = "/0.pcap";
+    String fileBaseName = "capture";
+    bool fileIsPcap = false;
+    bool fileIsGpx = false;
     File file;
-    fs::FS* fs;
-    bool serial;
+    fs::FS* fs = NULL;
+    bool serial = false;
 };
 
 #endif

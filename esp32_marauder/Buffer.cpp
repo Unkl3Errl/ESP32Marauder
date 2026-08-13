@@ -1,6 +1,10 @@
 #include "Buffer.h"
 #include "lang_var.h"
 
+namespace {
+constexpr size_t ANDROID_SPOOL_SEGMENT_BYTES = 128 * 1024;
+}
+
 Buffer::Buffer(){
   bufA = (uint8_t*)malloc(BUF_SIZE);
   bufB = (uint8_t*)malloc(BUF_SIZE);
@@ -56,7 +60,34 @@ String Buffer::getFileName() {
   return this->fileName;
 }
 
+bool Buffer::isActiveFile(const String& path) const {
+  return writing && fs != NULL && path == fileName;
+}
+
+void Buffer::writePcapHeader(File& target) {
+  const uint8_t header[] = {
+    0xd4, 0xc3, 0xb2, 0xa1,
+    0x02, 0x00, 0x04, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x18, 0x09, 0x00, 0x00,
+    0x69, 0x00, 0x00, 0x00,
+  };
+  target.write(header, sizeof(header));
+}
+
+void Buffer::rotateFile() {
+  createFile(fileBaseName.c_str(), fileIsPcap, fileIsGpx);
+  if (!fileIsPcap) return;
+  File target = fs->open(fileName, FILE_APPEND);
+  if (target) {
+    writePcapHeader(target);
+    target.close();
+  }
+}
+
 void Buffer::openFile(const char* file_name, fs::FS* fs, bool serial, bool is_pcap, bool is_gpx) {
+  close();
   bool save_pcap = settings_obj.loadSetting<bool>("SavePCAP");
   if (!save_pcap) {
     this->fs = NULL;
@@ -66,6 +97,9 @@ void Buffer::openFile(const char* file_name, fs::FS* fs, bool serial, bool is_pc
   }
   this->fs = fs;
   this->serial = serial;
+  this->fileBaseName = file_name;
+  this->fileIsPcap = is_pcap;
+  this->fileIsGpx = is_gpx;
   if (this->fs) {
     createFile(file_name, is_pcap, is_gpx);
   }
@@ -172,6 +206,26 @@ void Buffer::write(const uint8_t* buf, uint32_t len){
 }
 
 void Buffer::saveFs(){
+  const size_t pending = bufSizeA + bufSizeB;
+  size_t currentSize = 0;
+  File current = fs->open(fileName, FILE_READ);
+  if (current) {
+    currentSize = current.size();
+    current.close();
+  }
+  if (!fileIsGpx && currentSize > 0 &&
+      currentSize + pending > ANDROID_SPOOL_SEGMENT_BYTES) {
+    rotateFile();
+  } else if (!fs->exists(fileName)) {
+    createFile(fileBaseName.c_str(), fileIsPcap, fileIsGpx);
+    if (fileIsPcap) {
+      File target = fs->open(fileName, FILE_APPEND);
+      if (target) {
+        writePcapHeader(target);
+        target.close();
+      }
+    }
+  }
   file = fs->open(fileName, FILE_APPEND);
   if (!file) {
     Serial.println(text02+fileName+"'");
@@ -253,4 +307,12 @@ void Buffer::save() {
   bufSizeB = 0;
 
   saving = false;
+}
+
+void Buffer::close() {
+  if (!writing) return;
+  save();
+  writing = false;
+  fs = NULL;
+  serial = false;
 }

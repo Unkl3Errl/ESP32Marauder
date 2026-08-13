@@ -459,6 +459,15 @@ void CommandLine::runCommand(String input) {
     #endif
   }
 
+  // Cross-firmware storage protocol used by HeltecController.
+  else if (cmd_args.get(0) == SD_CMD) {
+    #ifdef HAS_SD
+      sd_obj.handleStorageCommand(cmd_args);
+    #else
+      Serial.println(F("SD:ERR:not_mounted"));
+    #endif
+  }
+
   // Channel command
   else if (cmd_args.get(0) == CH_CMD) {
     // Search for channel set arg
