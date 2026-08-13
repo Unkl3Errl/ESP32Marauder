@@ -99,8 +99,12 @@ bool SDInterface::initSD() {
   #ifndef HAS_SD
     return false;
   #else
+    if (this->supported) return true;
     String display_string = "";
     #ifdef HAS_VIRTUAL_SD
+    /* Preserve a valid spool, but format a blank or incompatible reserved
+       partition inside this same mount call. Splitting this into separate
+       mount/format/remount operations can strand the wear-level layer. */
     if (!FFat.begin(true, "/android", 10, "android")) {
       Serial.println(F("Failed to mount Android virtual SD"));
       this->supported = false;
@@ -242,7 +246,9 @@ void SDInterface::listDir(String str_dir){
 }
 
 bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
-  if (!this->supported) {
+  // A boot-time failure must not permanently disable Android-backed storage.
+  // Retry the one-call mount whenever the phone requests storage access.
+  if (!this->supported && !this->initSD()) {
     storageError("not_mounted");
     return false;
   }
