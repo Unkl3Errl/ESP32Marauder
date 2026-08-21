@@ -1,4 +1,5 @@
 #include "Display.h"
+#include "DisplayLine.h"
 #include "lang_var.h"
 
 #ifdef HAS_SCREEN
@@ -577,17 +578,15 @@ void Display::processAndPrintString(TFT_eSPI& tft, const String& originalString)
     }
   }
 
-  int count = TFT_WIDTH / CHAR_WIDTH;
-
-  char buf[count + 1];
-  memset(buf, ' ', count);
-  buf[count] = '\0';
-
-  String spaces(buf);
+  // Scan output uses the built-in 6-pixel font. CHAR_WIDTH describes larger
+  // menu/layout cells on full-size displays, so using it here cut their line
+  // capacity in half and truncated values such as MAC addresses.
+  char line[STANDARD_FONT_CHAR_LIMIT + 1];
+  fitDisplayLine(line, sizeof(line), new_string.c_str()); // GCOVR_EXCL_LINE
 
   // Set text color and print the string
   tft.setTextColor(text_color, background_color);
-  tft.print(new_string + spaces);
+  tft.print(line);
 }
 
 void Display::displayBuffer(bool do_clear)
@@ -654,10 +653,16 @@ void Display::showCenterText(const char* text, int y, bool small_pp, uint8_t tex
   if (!text)
     text = "";
 
+  // Centering already assumes either the 1x bitmap font or text_size scaling.
+  // Apply that size here as well so callers never inherit a previous UI's
+  // text scale (for example, the 2x upload percentage display).
+  const uint8_t effective_text_size = resolveDisplayTextSize(small_pp, text_size);
+  tft.setTextSize(effective_text_size);
+
   size_t len = strlen(text);
 
   if (!small_pp)
-    tft.setCursor((SCREEN_WIDTH - (len * (6 * text_size))) / 2, y);
+    tft.setCursor((SCREEN_WIDTH - (len * (6 * effective_text_size))) / 2, y);
   else
     tft.setCursor((SCREEN_WIDTH - (len * 6)) / 2, y);
 
