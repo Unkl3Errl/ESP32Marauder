@@ -17,6 +17,7 @@ https://www.online-utility.org/image/convert/to/XBM
 #endif
 
 #include <stdio.h>
+#include <esp_system.h>
 
 #ifdef HAS_GPS
   #include "GpsInterface.h"
@@ -117,6 +118,54 @@ const String PROGMEM version_number = MARAUDER_VERSION;
 #endif
 
 uint32_t currentTime  = 0;
+
+#ifdef MARAUDER_HELTEC_V4
+namespace {
+constexpr uint8_t kBootGuardVextPin = 36;
+constexpr uint8_t kBootGuardGpsPowerPin = 34;
+
+const char* bootResetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    case ESP_RST_UNKNOWN:
+    default: return "unknown";
+  }
+}
+
+void runBootPowerGuard() {
+  const esp_reset_reason_t reason = esp_reset_reason();
+  uint32_t guardMs = 0;
+  if (reason == ESP_RST_BROWNOUT) guardMs = 2500;
+  else if (reason == ESP_RST_POWERON) guardMs = 1200;
+
+  if (guardMs > 0) {
+    // Keep the shared peripheral rail and GPS off until a freshly recharged
+    // battery has recovered enough to absorb the display/radio inrush.
+    pinMode(kBootGuardVextPin, OUTPUT);
+    digitalWrite(kBootGuardVextPin, HIGH);
+    pinMode(kBootGuardGpsPowerPin, OUTPUT);
+    digitalWrite(kBootGuardGpsPowerPin, HIGH);
+    delay(guardMs);
+  }
+  Serial.printf(
+    "[BOOT] reset=%s (%d), power guard=%lu ms\n",
+    bootResetReasonName(reason),
+    static_cast<int>(reason),
+    static_cast<unsigned long>(guardMs)
+  );
+  Serial.flush();
+}
+}  // namespace
+#endif
 
 // PWM Brightness Control
 #ifdef HAS_SCREEN
@@ -244,6 +293,10 @@ void setup()
   #endif
 
   Serial.begin(115200);
+
+  #ifdef MARAUDER_HELTEC_V4
+    runBootPowerGuard();
+  #endif
 
   #ifdef HAS_HELTEC_STANDALONE
     heltec_ui_obj.begin();
