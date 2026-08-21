@@ -29,7 +29,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.0-mobile.3"',
+            '#define MARAUDER_VERSION "v1.15.0-mobile.4"',
             CONFIG_SOURCE,
         )
 
@@ -42,6 +42,22 @@ class AndroidStorageMountContractTest(unittest.TestCase):
             'androidHostCapacityValid ? this->androidHostTotalBytes',
         ):
             self.assertIn(expected, SD_SOURCE)
+
+    def test_capture_ram_is_not_cleared_after_a_failed_spool_write(self):
+        buffer_source = (PROJECT_DIR / "esp32_marauder/Buffer.cpp").read_text(
+            encoding="utf-8"
+        )
+        for expected in (
+            "FFat.freeBytes() < pending + SPOOL_WRITE_RESERVE_BYTES",
+            "bool saved = this->fs == NULL;",
+            "if (!saved)",
+            "retaining capture data in RAM",
+        ):
+            self.assertIn(expected, buffer_source)
+        self.assertLess(
+            buffer_source.index("if (!saved)"),
+            buffer_source.index("bufSizeA = 0;", buffer_source.index("void Buffer::save()")),
+        )
 
 
 if __name__ == "__main__":

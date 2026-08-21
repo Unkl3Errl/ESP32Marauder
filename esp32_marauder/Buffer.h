@@ -37,8 +37,8 @@ class Buffer {
     void write(uint32_t n);
     void write(uint16_t n);
     void write(const uint8_t* buf, uint32_t len);
-    void saveFs();
-    void saveSerial();
+    bool saveFs();
+    bool saveSerial();
     void rotateFile();
     void writePcapHeader(File& target);
     
