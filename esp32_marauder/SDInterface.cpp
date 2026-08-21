@@ -270,6 +270,10 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
     this->androidHostTotalBytes = total;
     this->androidHostFreeBytes = free;
     this->androidHostCapacityValid = true;
+    // General firmware status and the on-device info screen must describe the
+    // virtual SD presented to the user, not just its small flash-backed spool.
+    this->cardSizeMB = total / (1024 * 1024);
+    this->card_sz = String(this->cardSizeMB);
     Serial.println("SD:HOST:total=" + String(total));
     Serial.println("SD:HOST:free=" + String(free));
     Serial.println(F("SD:OK:host-capacity"));

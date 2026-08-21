@@ -29,7 +29,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.0-mobile.4"',
+            '#define MARAUDER_VERSION "v1.15.0-mobile.5"',
             CONFIG_SOURCE,
         )
 
@@ -40,6 +40,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
             'SD:STATUS:spool_total=',
             'SD:STATUS:spool_free=',
             'androidHostCapacityValid ? this->androidHostTotalBytes',
+            'this->card_sz = String(this->cardSizeMB)',
         ):
             self.assertIn(expected, SD_SOURCE)
 
