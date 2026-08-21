@@ -258,12 +258,44 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
   }
 
   const String operation = args.get(1);
+  #ifdef HAS_VIRTUAL_SD
+  if (operation == "host" && args.size() == 4) {
+    uint64_t total = 0;
+    uint64_t free = 0;
+    if (!storageUint64(args.get(2), total) || !storageUint64(args.get(3), free) ||
+        total == 0 || free > total) {
+      storageError("invalid_host_capacity");
+      return false;
+    }
+    this->androidHostTotalBytes = total;
+    this->androidHostFreeBytes = free;
+    this->androidHostCapacityValid = true;
+    Serial.println("SD:HOST:total=" + String(total));
+    Serial.println("SD:HOST:free=" + String(free));
+    Serial.println(F("SD:OK:host-capacity"));
+    return true;
+  }
+  #endif
   if (operation == "status") {
     Serial.println(F("SD:STATUS:mounted=true"));
     #ifdef HAS_VIRTUAL_SD
       Serial.println(F("SD:STATUS:type=virtual"));
-      Serial.println("SD:STATUS:total=" + String(FFat.totalBytes()));
-      Serial.println("SD:STATUS:free=" + String(FFat.freeBytes()));
+      Serial.println(
+        String(F("SD:STATUS:backing=")) +
+        (this->androidHostCapacityValid ? F("android") : F("spool"))
+      );
+      Serial.println(
+        "SD:STATUS:total=" + String(
+          this->androidHostCapacityValid ? this->androidHostTotalBytes : FFat.totalBytes()
+        )
+      );
+      Serial.println(
+        "SD:STATUS:free=" + String(
+          this->androidHostCapacityValid ? this->androidHostFreeBytes : FFat.freeBytes()
+        )
+      );
+      Serial.println("SD:STATUS:spool_total=" + String(FFat.totalBytes()));
+      Serial.println("SD:STATUS:spool_free=" + String(FFat.freeBytes()));
     #else
       Serial.println(F("SD:STATUS:type=physical"));
       Serial.println("SD:STATUS:total=" + String(SD.totalBytes()));

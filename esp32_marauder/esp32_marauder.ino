@@ -506,6 +506,10 @@ void setup()
   menu_function_obj.changeMenu(menu_function_obj.current_menu);*/
 
   wifi_scan_obj.StartScan(WIFI_SCAN_OFF);
+
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.beginBle();
+  #endif
   
   cli_obj.RunSetup();
 
@@ -545,6 +549,10 @@ void loop()
   // Update all of our objects
   cli_obj.main(currentTime);
   wifi_scan_obj.main(currentTime);
+
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.loop();
+  #endif
 
   #ifdef HAS_T_DONGLE_DISPLAY
     t_dongle_display.update(currentTime, wifi_scan_obj);

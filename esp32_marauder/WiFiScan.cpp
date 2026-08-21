@@ -68,6 +68,18 @@ extern "C" {
   //Exploit by ECTO-1A
   NimBLEAdvertising *pAdvertising;
 
+  // Clearing NimBLE-owned objects prevents the phone UART service and scan
+  // services from accumulating duplicate GATT entries across radio restarts.
+  #ifdef MARAUDER_HELTEC_V4
+    #define MARAUDER_NIMBLE_DEINIT(clearAll) do { \
+      MarauderSerial.prepareForBleDeinit(); \
+      NimBLEDevice::deinit(true); \
+      pAdvertising = nullptr; \
+    } while (0)
+  #else
+    #define MARAUDER_NIMBLE_DEINIT(clearAll) NimBLEDevice::deinit(clearAll)
+  #endif
+
   //// https://github.com/Spooks4576
   NimBLEAdvertisementData WiFiScan::GetUniversalAdvertisementData(EBLEPayloadType Type) {
     NimBLEAdvertisementData AdvData = NimBLEAdvertisementData();
@@ -2630,7 +2642,10 @@ bool WiFiScan::shutdownBLE() {
       delay(100);
 
 
-      NimBLEDevice::deinit();
+      MARAUDER_NIMBLE_DEINIT(false);
+      #ifdef MARAUDER_HELTEC_V4
+        pBLEScan = nullptr;
+      #endif
 
       this->_analyzer_value = 0;
       this->bt_frames = 0;
@@ -2819,6 +2834,10 @@ void WiFiScan::StopScan(uint8_t scan_mode) {
     gps_obj.disable_queue();
   #endif
   buffer_obj.close();
+
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.beginBle();
+  #endif
 }
 
 void WiFiScan::getMAC(bool get_sta, uint8_t* mac) {
@@ -4704,7 +4723,7 @@ int WiFiScan::connectAndProcessTracker(NimBLEAddress& address) {
     NimBLEDevice::deleteClient(nimbleClient);
     nimbleClient = nullptr;
 
-    NimBLEDevice::deinit(true);
+    MARAUDER_NIMBLE_DEINIT(true);
 
     this->createNimbleClient();
 
@@ -5151,7 +5170,7 @@ bool WiFiScan::backendFindMySound(NimBLEAddress& address, bool gui) {
     nimbleClient = nullptr;
   }
 
-  NimBLEDevice::deinit(true);
+  MARAUDER_NIMBLE_DEINIT(true);
 
   return send_success;
 }
@@ -5277,7 +5296,7 @@ void WiFiScan::executeBLESpam(EBLEPayloadType type) {
 
       delay(10);
 
-      NimBLEDevice::deinit();
+      MARAUDER_NIMBLE_DEINIT(false);
     }
     else if (type == Apple) {
       if ((now_time - this->last_sour_apple_update > 1000) || (this->last_sour_apple_update == 0) || (!this->ble_initialized)) {
@@ -5306,7 +5325,7 @@ void WiFiScan::executeBLESpam(EBLEPayloadType type) {
 
       if ((now_time - this->last_sour_apple_update > 1000) || (this->last_sour_apple_update == 0)) {
         this->last_sour_apple_update = now_time;
-        NimBLEDevice::deinit();
+        MARAUDER_NIMBLE_DEINIT(false);
         this->ble_initialized = false;
       }
     }
@@ -5341,7 +5360,7 @@ void WiFiScan::executeBLESpam(EBLEPayloadType type) {
           pAdvertising->stop();
 
           //#ifndef HAS_DUAL_BAND
-            NimBLEDevice::deinit();
+            MARAUDER_NIMBLE_DEINIT(false);
           //#endif
 
           break;
@@ -5371,7 +5390,7 @@ void WiFiScan::executeBLESpam(EBLEPayloadType type) {
       delay(10);
       pAdvertising->stop();
 
-      NimBLEDevice::deinit();
+      MARAUDER_NIMBLE_DEINIT(false);
     }
   #endif
 }
@@ -5410,7 +5429,7 @@ void WiFiScan::executeBLESpam(EBLEPayloadType type) {
 
     delay(10);
 
-    NimBLEDevice::deinit();
+    MARAUDER_NIMBLE_DEINIT(false);
 
   #endif
 }*/
@@ -5442,7 +5461,7 @@ void WiFiScan::executeBLESpam(EBLEPayloadType type) {
 
     if ((now_time - this->last_sour_apple_update > 1000) || (this->last_sour_apple_update == 0)) {
       this->last_sour_apple_update = now_time;
-      NimBLEDevice::deinit();
+      MARAUDER_NIMBLE_DEINIT(false);
       this->ble_initialized = false;
     }
 
@@ -6357,15 +6376,15 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
       display_obj.print_delay_2 = 20;
     #endif
 
-    if ((scan_mode == BT_SCAN_FLOCK) ||
+    if (!NimBLEDevice::getInitialized() && ((scan_mode == BT_SCAN_FLOCK) ||
         (scan_mode == WIFI_SCAN_WAR_DRIVE) ||
         (scan_mode == WIFI_SCAN_DETECT_FOLLOW) ||
         (scan_mode == BT_SCAN_SIMPLE) ||
         (scan_mode == BT_SCAN_SIMPLE_TWO) ||
         (scan_mode == BT_SCAN_ANALYZER) ||
-        (scan_mode == BT_SCAN_RAYBAN))
+        (scan_mode == BT_SCAN_RAYBAN)))
       NimBLEDevice::setScanDuplicateCacheSize(0);
-    else {
+    else if (!NimBLEDevice::getInitialized()) {
       NimBLEDevice::setScanFilterMode(CONFIG_BTDM_SCAN_DUPL_TYPE_DEVICE);
       NimBLEDevice::setScanDuplicateCacheSize(200);
     }

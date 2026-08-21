@@ -43,7 +43,7 @@
 
   #define JSON_SETTING_SIZE 2048
 
-  #define MARAUDER_VERSION "v1.15.0-mobile.1"
+#define MARAUDER_VERSION "v1.15.0-mobile.3"
 
   #define GRAPH_REFRESH   100
 
@@ -642,6 +642,13 @@
     #define HAS_SD
   #endif
   //// END BOARD FEATURES
+
+  // Keep the upstream CLI unchanged while exposing it over both USB CDC and
+  // a phone-facing BLE UART service on the Android companion target.
+  #ifdef MARAUDER_HELTEC_V4
+    #include "MarauderBleSerial.h"
+    #define Serial MarauderSerial
+  #endif
 
   //// POWER MANAGEMENT
   #ifdef HAS_PWR_MGMT
