@@ -6376,7 +6376,13 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
       display_obj.print_delay_2 = 20;
     #endif
 
-    if (!NimBLEDevice::getInitialized() && ((scan_mode == BT_SCAN_FLOCK) ||
+    #ifdef MARAUDER_HELTEC_V4
+      const bool configureScanCache = !NimBLEDevice::getInitialized();
+    #else
+      const bool configureScanCache = true;
+    #endif
+
+    if (configureScanCache && ((scan_mode == BT_SCAN_FLOCK) ||
         (scan_mode == WIFI_SCAN_WAR_DRIVE) ||
         (scan_mode == WIFI_SCAN_DETECT_FOLLOW) ||
         (scan_mode == BT_SCAN_SIMPLE) ||
@@ -6384,7 +6390,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
         (scan_mode == BT_SCAN_ANALYZER) ||
         (scan_mode == BT_SCAN_RAYBAN)))
       NimBLEDevice::setScanDuplicateCacheSize(0);
-    else if (!NimBLEDevice::getInitialized()) {
+    else if (configureScanCache) {
       NimBLEDevice::setScanFilterMode(CONFIG_BTDM_SCAN_DUPL_TYPE_DEVICE);
       NimBLEDevice::setScanDuplicateCacheSize(200);
     }

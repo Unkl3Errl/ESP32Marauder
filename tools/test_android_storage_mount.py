@@ -8,6 +8,9 @@ CONFIG_SOURCE = (PROJECT_DIR / "esp32_marauder/configs.h").read_text(encoding="u
 BLE_SOURCE = (PROJECT_DIR / "esp32_marauder/MarauderBleSerial.cpp").read_text(
     encoding="utf-8"
 )
+WIFI_SOURCE = (PROJECT_DIR / "esp32_marauder/WiFiScan.cpp").read_text(
+    encoding="utf-8"
+)
 
 
 class AndroidStorageMountContractTest(unittest.TestCase):
@@ -71,6 +74,16 @@ class AndroidStorageMountContractTest(unittest.TestCase):
             guarded.index("#ifdef MARAUDER_HELTEC_V4"),
             guarded.index("#include <NimBLEDevice.h>"),
         )
+
+    def test_nimble_two_initialization_api_is_heltec_only(self):
+        marker = "const bool configureScanCache = !NimBLEDevice::getInitialized();"
+        self.assertIn(marker, WIFI_SOURCE)
+        guarded_region = WIFI_SOURCE[
+            WIFI_SOURCE.rfind("#ifdef MARAUDER_HELTEC_V4", 0, WIFI_SOURCE.index(marker)) :
+            WIFI_SOURCE.index("#endif", WIFI_SOURCE.index(marker))
+        ]
+        self.assertIn(marker, guarded_region)
+        self.assertIn("const bool configureScanCache = true;", guarded_region)
 
 
 if __name__ == "__main__":
