@@ -336,6 +336,8 @@ jobs:
   post_compile_steps:
     name: Create Nightly Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs: [compile_sketch, decide]
     # create release if manual dispatch OR should_release decided true for scheduled run
     if: ${{ needs.decide.outputs.should_build == 'true' }}
