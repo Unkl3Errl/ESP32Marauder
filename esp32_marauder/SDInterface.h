@@ -9,7 +9,13 @@
 #ifdef HAS_C5_SD
   #include "FS.h"
 #endif
-#include "SD.h"
+#ifdef HAS_VIRTUAL_SD
+  #include "FFat.h"
+  #define MARAUDER_STORAGE FFat
+#else
+  #include "SD.h"
+  #define MARAUDER_STORAGE SD
+#endif
 #ifdef HAS_C5_SD
   #include "SPI.h"
 #endif
@@ -36,6 +42,9 @@ extern Settings settings_obj;
 class SDInterface {
 
   private:
+    uint64_t androidHostTotalBytes = 0;
+    uint64_t androidHostFreeBytes = 0;
+    bool androidHostCapacityValid = false;
   #if (defined(MARAUDER_M5STICKC) || defined(HAS_CYD_TOUCH) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV))
     SPIClass *spiExt;
   #elif defined(HAS_C5_SD)
@@ -68,6 +77,7 @@ class SDInterface {
     void runUpdate(String file_name = "");
     void performUpdate(Stream &updateSource, size_t updateSize);
     bool removeFile(String file_path);
+    bool handleStorageCommand(LinkedList<String>& args);
 };
 
 #endif

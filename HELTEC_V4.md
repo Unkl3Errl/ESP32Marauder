@@ -36,8 +36,14 @@ device status, and several transmit test modes. Every transmit-capable OLED item
 has a separate warning screen and requires a second deliberate select gesture.
 The full upstream command set remains available over USB serial at 115200 baud.
 
-This board has no microSD slot. Captures and wardrive output can be streamed over
-serial, but are not retained on removable media.
+This board has no microSD slot. The customized target uses a reserved flash
+partition as a protected virtual-SD spool. Capture files rotate at 128 KiB;
+the Android companion copies each closed segment, verifies its size and CRC-32,
+and only then acknowledges deletion from the spool. A failed or short spool
+write leaves the pending RAM batch intact for retry instead of silently
+clearing it. The app publishes Android total/free capacity separately from the
+physical spool capacity, so device status describes the long-term Android
+backing while retaining local backpressure diagnostics.
 
 ## Build
 
@@ -87,8 +93,9 @@ firmware uses only the ESP32-S3's 2.4 GHz Wi-Fi/BLE radio.
 
 The canonical Android companion is
 [`Unkl3Errl/HeltecController`](https://github.com/Unkl3Errl/HeltecController).
-It identifies Marauder through read-only USB `info` and `help` responses, then
-enables only the Marauder interface. It provides guarded command shortcuts,
-structured AP/BLE results, CSV export, and persistent USB session history. The
-same package can identify a Bruce-flashed board and expose its separate
-BruceNet/USB interface instead.
+It identifies Marauder through read-only `info` and `help` responses over USB
+or its phone-facing BLE UART, then enables only the Marauder interface. It
+provides guarded command shortcuts, structured AP/BLE results, CSV export,
+independent multi-device sessions, and background virtual-SD draining while
+the screen is off. The same package can identify Bruce- or GhostESP-flashed
+boards and keep their separate sessions active at the same time.

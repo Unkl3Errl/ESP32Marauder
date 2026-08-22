@@ -17,6 +17,7 @@ https://www.online-utility.org/image/convert/to/XBM
 #endif
 
 #include <stdio.h>
+#include <esp_system.h>
 
 #ifdef HAS_GPS
   #include "GpsInterface.h"
@@ -35,13 +36,17 @@ https://www.online-utility.org/image/convert/to/XBM
   #include "xiaoLED.h"
 #elif defined(MARAUDER_M5STICKC) || defined(MARAUDER_M5STICKCP2)
   #include "stickcLED.h"
-#elif defined(HAS_NEOPIXEL_LED)
+#elif defined(HAS_NEOPIXEL_LED) || defined(HAS_T_DONGLE_LED)
   #include "LedInterface.h"
 #endif
 
 #include "settings.h"
 #include "CommandLine.h"
 #include "lang_var.h"
+
+#ifdef HAS_T_DONGLE_DISPLAY
+  #include "TDongleDisplay.h"
+#endif
 
 #ifdef HAS_BATTERY
   #include "BatteryInterface.h"
@@ -83,6 +88,10 @@ CommandLine cli_obj;
   HeltecStandalone heltec_ui_obj;
 #endif
 
+#ifdef HAS_T_DONGLE_DISPLAY
+  TDongleDisplay t_dongle_display;
+#endif
+
 #ifdef HAS_GPS
   GpsInterface gps_obj;
 #endif
@@ -106,7 +115,7 @@ CommandLine cli_obj;
   xiaoLED xiao_led;
 #elif defined(MARAUDER_M5STICKC) || defined(MARAUDER_M5STICKCP2)
   stickcLED stickc_led;
-#elif defined(HAS_NEOPIXEL_LED)
+#elif defined(HAS_NEOPIXEL_LED) || defined(HAS_T_DONGLE_LED)
   LedInterface led_obj;
 #endif
 
@@ -117,6 +126,54 @@ const String PROGMEM version_number = MARAUDER_VERSION;
 #endif
 
 uint32_t currentTime  = 0;
+
+#ifdef MARAUDER_HELTEC_V4
+namespace {
+constexpr uint8_t kBootGuardVextPin = 36;
+constexpr uint8_t kBootGuardGpsPowerPin = 34;
+
+const char* bootResetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    case ESP_RST_UNKNOWN:
+    default: return "unknown";
+  }
+}
+
+void runBootPowerGuard() {
+  const esp_reset_reason_t reason = esp_reset_reason();
+  uint32_t guardMs = 0;
+  if (reason == ESP_RST_BROWNOUT) guardMs = 2500;
+  else if (reason == ESP_RST_POWERON) guardMs = 1200;
+
+  if (guardMs > 0) {
+    // Keep the shared peripheral rail and GPS off until a freshly recharged
+    // battery has recovered enough to absorb the display/radio inrush.
+    pinMode(kBootGuardVextPin, OUTPUT);
+    digitalWrite(kBootGuardVextPin, HIGH);
+    pinMode(kBootGuardGpsPowerPin, OUTPUT);
+    digitalWrite(kBootGuardGpsPowerPin, HIGH);
+    delay(guardMs);
+  }
+  Serial.printf(
+    "[BOOT] reset=%s (%d), power guard=%lu ms\n",
+    bootResetReasonName(reason),
+    static_cast<int>(reason),
+    static_cast<unsigned long>(guardMs)
+  );
+  Serial.flush();
+}
+}  // namespace
+#endif
 
 // PWM Brightness Control
 #ifdef HAS_SCREEN
@@ -245,6 +302,10 @@ void setup()
 
   Serial.begin(115200);
 
+  #ifdef MARAUDER_HELTEC_V4
+    runBootPowerGuard();
+  #endif
+
   #ifdef HAS_HELTEC_STANDALONE
     heltec_ui_obj.begin();
     heltec_ui_obj.setBootStatus("Core startup");
@@ -286,7 +347,7 @@ void setup()
     digitalWrite(TFT_CS, HIGH);
   #endif
   
-  #if defined(HAS_SD) && !defined(HAS_C5_SD)
+  #if defined(HAS_SD) && !defined(HAS_C5_SD) && !defined(HAS_VIRTUAL_SD)
     pinMode(SD_CS, OUTPUT);
 
     delay(10);
@@ -385,6 +446,10 @@ void setup()
     heltec_ui_obj.setBootStatus("WiFi ready");
   #endif
 
+  #ifdef HAS_T_DONGLE_DISPLAY
+    t_dongle_display.begin();
+  #endif
+
   #ifdef HAS_SCREEN
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
     display_obj.tft.drawCentreString("Initializing...", TFT_WIDTH/2, TFT_HEIGHT * 0.82, 1);
@@ -407,7 +472,7 @@ void setup()
     xiao_led.RunSetup();
   #elif defined(MARAUDER_M5STICKC)
     stickc_led.RunSetup();
-  #elif defined(HAS_NEOPIXEL_LED)
+  #elif defined(HAS_NEOPIXEL_LED) || defined(HAS_T_DONGLE_LED)
     led_obj.RunSetup();
   #endif
 
@@ -441,6 +506,10 @@ void setup()
   menu_function_obj.changeMenu(menu_function_obj.current_menu);*/
 
   wifi_scan_obj.StartScan(WIFI_SCAN_OFF);
+
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.beginBle();
+  #endif
   
   cli_obj.RunSetup();
 
@@ -481,6 +550,14 @@ void loop()
   cli_obj.main(currentTime);
   wifi_scan_obj.main(currentTime);
 
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.loop();
+  #endif
+
+  #ifdef HAS_T_DONGLE_DISPLAY
+    t_dongle_display.update(currentTime, wifi_scan_obj);
+  #endif
+
   #ifdef HAS_GPS
     gps_obj.main();
   #endif
@@ -507,6 +584,10 @@ void loop()
     xiao_led.main();
   #elif defined(MARAUDER_M5STICKC)
     stickc_led.main();
+  #elif defined(HAS_T_DONGLE_LED)
+    // The LED shares GPIO2/GPIO7 with the display/SD bus. Always make it the
+    // final writer so later SPI activity cannot leave it latched white.
+    led_obj.refresh();
   #elif defined(HAS_NEOPIXEL_LED)
     led_obj.main(currentTime);
   #endif

@@ -1,5 +1,94 @@
 #include "SDInterface.h"
 #include "lang_var.h"
+#include "mbedtls/base64.h"
+
+namespace {
+bool storagePath(String& path) {
+  path.trim();
+  if (path.length() == 0 || path.length() > 240) return false;
+  if (!path.startsWith("/")) path = "/" + path;
+  int start = 1;
+  while (start <= path.length()) {
+    int end = path.indexOf('/', start);
+    if (end < 0) end = path.length();
+    if (path.substring(start, end) == "..") return false;
+    if (end >= path.length()) break;
+    start = end + 1;
+  }
+  return true;
+}
+
+bool storageNumber(const String& text, size_t& value) {
+  if (text.length() == 0) return false;
+  for (size_t i = 0; i < text.length(); ++i) {
+    if (!isDigit(text[i])) return false;
+  }
+  value = static_cast<size_t>(strtoull(text.c_str(), nullptr, 10));
+  return true;
+}
+
+bool storageUint64(const String& text, uint64_t& value) {
+  if (text.length() == 0) return false;
+  for (size_t i = 0; i < text.length(); ++i) {
+    if (!isDigit(text[i])) return false;
+  }
+  value = strtoull(text.c_str(), nullptr, 10);
+  return true;
+}
+
+bool storageCrc32Value(const String& text, uint32_t& value) {
+  if (text.length() != 8) return false;
+  uint32_t parsed = 0;
+  for (size_t i = 0; i < text.length(); ++i) {
+    const char ch = text[i];
+    uint32_t nibble;
+    if (ch >= '0' && ch <= '9') nibble = ch - '0';
+    else if (ch >= 'a' && ch <= 'f') nibble = ch - 'a' + 10;
+    else if (ch >= 'A' && ch <= 'F') nibble = ch - 'A' + 10;
+    else return false;
+    parsed = (parsed << 4) | nibble;
+  }
+  value = parsed;
+  return true;
+}
+
+uint32_t storageCrc32Update(uint32_t crc, const uint8_t* data, size_t length) {
+  while (length--) {
+    crc ^= *data++;
+    for (uint8_t bit = 0; bit < 8; ++bit) {
+      crc = (crc >> 1) ^ (0xEDB88320UL & static_cast<uint32_t>(
+        -static_cast<int32_t>(crc & 1U)
+      ));
+    }
+  }
+  return crc;
+}
+
+bool storageFileCrc32(const String& path, uint64_t& size, uint32_t& checksum) {
+  File file = MARAUDER_STORAGE.open(path, FILE_READ);
+  if (!file || file.isDirectory()) {
+    if (file) file.close();
+    return false;
+  }
+  uint8_t buffer[1024];
+  uint64_t total = 0;
+  uint32_t crc = 0xFFFFFFFFUL;
+  while (file.available()) {
+    const size_t received = file.read(buffer, sizeof(buffer));
+    if (received == 0) break;
+    crc = storageCrc32Update(crc, buffer, received);
+    total += received;
+  }
+  const bool complete = total == file.size();
+  file.close();
+  if (!complete) return false;
+  size = total;
+  checksum = crc ^ 0xFFFFFFFFUL;
+  return true;
+}
+
+void storageError(const String& message) { Serial.println("SD:ERR:" + message); }
+} // namespace
 
 #ifdef HAS_C5_SD
   SDInterface::SDInterface(SPIClass* spi, int cs)
@@ -7,9 +96,24 @@
 #endif
 
 bool SDInterface::initSD() {
-  #ifdef HAS_SD
+  #ifndef HAS_SD
+    return false;
+  #else
+    if (this->supported) return true;
     String display_string = "";
-
+    #ifdef HAS_VIRTUAL_SD
+    /* Preserve a valid spool, but format a blank or incompatible reserved
+       partition inside this same mount call. Splitting this into separate
+       mount/format/remount operations can strand the wear-level layer. */
+    if (!FFat.begin(true, "/android", 10, "android")) {
+      Serial.println(F("Failed to mount Android virtual SD"));
+      this->supported = false;
+      return false;
+    }
+    this->supported = true;
+    this->cardType = 1;
+    this->cardSizeMB = FFat.totalBytes() / (1024 * 1024);
+    #else
     #ifdef KIT
       pinMode(SD_DET, INPUT);
       if (digitalRead(SD_DET) != LOW) {
@@ -58,42 +162,28 @@ bool SDInterface::initSD() {
     else {
       this->supported = true;
       this->cardType = SD.cardType();
-
       this->cardSizeMB = SD.cardSize() / (1024 * 1024);
-    
-      if (this->supported) {
-        const int NUM_DIGITS = log10(this->cardSizeMB) + 1;
+    }
+    #endif
 
-        char sz[NUM_DIGITS + 1];
+    if (this->supported) {
+      const int NUM_DIGITS = this->cardSizeMB > 0 ? log10(this->cardSizeMB) + 1 : 1;
+      char sz[NUM_DIGITS + 1];
+      sz[NUM_DIGITS] = 0;
+      uint64_t size = this->cardSizeMB;
+      for (size_t i = NUM_DIGITS; i--; size /= 10) sz[i] = '0' + (size % 10);
+      this->card_sz = sz;
+    }
 
-        sz[NUM_DIGITS] =  0;
-        for ( size_t i = NUM_DIGITS; i--; this->cardSizeMB /= 10)
-        {
-            sz[i] = '0' + (this->cardSizeMB % 10);
-            display_string.concat((String)sz[i]);
-        }
-  
-        this->card_sz = sz;
-      }
-
-      if (!SD.exists("/SCRIPTS")) {
-
-        SD.mkdir("/SCRIPTS");
-      }
-
-      this->sd_files = new LinkedList<String>();
-    
-      return true;
-  }
-
-  #else
-    return false;
+    if (!MARAUDER_STORAGE.exists("/SCRIPTS")) MARAUDER_STORAGE.mkdir("/SCRIPTS");
+    this->sd_files = new LinkedList<String>();
+    return true;
   #endif
 }
 
 File SDInterface::getFile(String path) {
   if (this->supported) {
-    File file = SD.open(path, FILE_READ);
+    File file = MARAUDER_STORAGE.open(path, FILE_READ);
 
     //if (file)
     return file;
@@ -101,7 +191,7 @@ File SDInterface::getFile(String path) {
 }
 
 bool SDInterface::removeFile(String file_path) {
-  if (SD.remove(file_path))
+  if (MARAUDER_STORAGE.remove(file_path))
     return true;
   else
     return false;
@@ -109,7 +199,7 @@ bool SDInterface::removeFile(String file_path) {
 
 void SDInterface::listDirToLinkedList(LinkedList<String>* file_names, String str_dir, String ext) {
   if (this->supported) {
-    File dir = SD.open(str_dir);
+    File dir = MARAUDER_STORAGE.open(str_dir);
     while (true)
     {
       File entry = dir.openNextFile();
@@ -135,7 +225,7 @@ void SDInterface::listDirToLinkedList(LinkedList<String>* file_names, String str
 
 void SDInterface::listDir(String str_dir){
   if (this->supported) {
-    File dir = SD.open(str_dir);
+    File dir = MARAUDER_STORAGE.open(str_dir);
     while (true)
     {
       File entry = dir.openNextFile();
@@ -155,6 +245,338 @@ void SDInterface::listDir(String str_dir){
   }
 }
 
+bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
+  // A boot-time failure must not permanently disable Android-backed storage.
+  // Retry the one-call mount whenever the phone requests storage access.
+  if (!this->supported && !this->initSD()) {
+    storageError("not_mounted");
+    return false;
+  }
+  if (args.size() < 2) {
+    storageError("usage");
+    return false;
+  }
+
+  const String operation = args.get(1);
+  #ifdef HAS_VIRTUAL_SD
+  if (operation == "host" && args.size() == 4) {
+    uint64_t total = 0;
+    uint64_t free = 0;
+    if (!storageUint64(args.get(2), total) || !storageUint64(args.get(3), free) ||
+        total == 0 || free > total) {
+      storageError("invalid_host_capacity");
+      return false;
+    }
+    this->androidHostTotalBytes = total;
+    this->androidHostFreeBytes = free;
+    this->androidHostCapacityValid = true;
+    // General firmware status and the on-device info screen must describe the
+    // virtual SD presented to the user, not just its small flash-backed spool.
+    this->cardSizeMB = total / (1024 * 1024);
+    this->card_sz = String(this->cardSizeMB);
+    Serial.println("SD:HOST:total=" + String(total));
+    Serial.println("SD:HOST:free=" + String(free));
+    Serial.println(F("SD:OK:host-capacity"));
+    return true;
+  }
+  #endif
+  if (operation == "status") {
+    Serial.println(F("SD:STATUS:mounted=true"));
+    #ifdef HAS_VIRTUAL_SD
+      Serial.println(F("SD:STATUS:type=virtual"));
+      Serial.println(
+        String(F("SD:STATUS:backing=")) +
+        (this->androidHostCapacityValid ? F("android") : F("spool"))
+      );
+      Serial.println(
+        "SD:STATUS:total=" + String(
+          this->androidHostCapacityValid ? this->androidHostTotalBytes : FFat.totalBytes()
+        )
+      );
+      Serial.println(
+        "SD:STATUS:free=" + String(
+          this->androidHostCapacityValid ? this->androidHostFreeBytes : FFat.freeBytes()
+        )
+      );
+      Serial.println("SD:STATUS:spool_total=" + String(FFat.totalBytes()));
+      Serial.println("SD:STATUS:spool_free=" + String(FFat.freeBytes()));
+    #else
+      Serial.println(F("SD:STATUS:type=physical"));
+      Serial.println("SD:STATUS:total=" + String(SD.totalBytes()));
+      Serial.println("SD:STATUS:free=" + String(SD.totalBytes() - SD.usedBytes()));
+    #endif
+    Serial.println(F("SD:OK"));
+    return true;
+  }
+
+  if (operation == "list") {
+    String path = args.size() >= 3 ? args.get(2) : "/";
+    if (!storagePath(path)) {
+      storageError("invalid_path");
+      return false;
+    }
+    File directory = MARAUDER_STORAGE.open(path);
+    if (!directory || !directory.isDirectory()) {
+      if (directory) directory.close();
+      storageError("cannot_open:" + path);
+      return false;
+    }
+    Serial.println("SD:LIST:" + path);
+    size_t count = 0;
+    while (true) {
+      File entry = directory.openNextFile();
+      if (!entry) break;
+      String name = entry.name();
+      name = name.substring(name.lastIndexOf('/') + 1);
+      if (entry.isDirectory()) {
+        Serial.println("SD:DIR:[" + String(count) + "] " + name);
+      } else {
+        Serial.println(
+          "SD:FILE:[" + String(count) + "] " + name + " " + String(entry.size()) + " " +
+          String(static_cast<uint32_t>(entry.getLastWrite()))
+        );
+      }
+      entry.close();
+      ++count;
+    }
+    directory.close();
+    if (count == 0) Serial.println(F("SD:EMPTY"));
+    Serial.println("SD:OK:listed " + String(count) + " entries");
+    return true;
+  }
+
+  if (operation == "size" && args.size() >= 3) {
+    String path = args.get(2);
+    if (!storagePath(path)) {
+      storageError("invalid_path");
+      return false;
+    }
+    File file = MARAUDER_STORAGE.open(path, FILE_READ);
+    if (!file || file.isDirectory()) {
+      if (file) file.close();
+      storageError("not_found:" + path);
+      return false;
+    }
+    Serial.println("SD:SIZE:" + String(file.size()));
+    file.close();
+    Serial.println(F("SD:OK"));
+    return true;
+  }
+
+  if (operation == "read" && args.size() >= 5) {
+    String path = args.get(2);
+    size_t offset = 0;
+    size_t wanted = 0;
+    if (!storagePath(path) || !storageNumber(args.get(3), offset) ||
+        !storageNumber(args.get(4), wanted)) {
+      storageError("invalid_read_request");
+      return false;
+    }
+    File file = MARAUDER_STORAGE.open(path, FILE_READ);
+    if (!file || file.isDirectory()) {
+      if (file) file.close();
+      storageError("cannot_open:" + path);
+      return false;
+    }
+    const size_t fileSize = file.size();
+    if (offset > fileSize) offset = fileSize;
+    const size_t length = min(wanted, fileSize - offset);
+    if (!file.seek(offset)) {
+      file.close();
+      storageError("seek_failed");
+      return false;
+    }
+
+    Serial.println("SD:READ:BEGIN:" + path);
+    Serial.println("SD:READ:SIZE:" + String(fileSize));
+    Serial.println("SD:READ:OFFSET:" + String(offset));
+    Serial.println("SD:READ:LENGTH:" + String(length));
+    Serial.println(F("SD:READ:ENCODING:base64"));
+    constexpr size_t chunkSize = 384;
+    uint8_t input[chunkSize];
+    unsigned char encoded[((chunkSize + 2) / 3) * 4 + 1];
+    size_t total = 0;
+    while (total < length) {
+      const size_t requested = min(chunkSize, length - total);
+      const size_t received = file.read(input, requested);
+      if (received == 0) break;
+      size_t encodedLength = 0;
+      if (mbedtls_base64_encode(
+            encoded, sizeof(encoded), &encodedLength, input, received
+          ) != 0) {
+        file.close();
+        storageError("base64_encode_failed");
+        return false;
+      }
+      encoded[encodedLength] = '\0';
+      Serial.println("SD:READ:DATA:" + String(reinterpret_cast<char*>(encoded)));
+      total += received;
+    }
+    file.close();
+    Serial.println("SD:READ:END:bytes=" + String(total));
+    if (total != length) {
+      storageError("file_read_failed");
+      return false;
+    }
+    Serial.println(F("SD:OK"));
+    return true;
+  }
+
+  if ((operation == "write" || operation == "append") && args.size() >= 4) {
+    String path = args.get(2);
+    if (!storagePath(path) || path == "/") {
+      storageError("invalid_path");
+      return false;
+    }
+    if (buffer_obj.isActiveFile(path)) {
+      storageError("active_file:" + path);
+      return false;
+    }
+    const String encoded = args.get(3);
+    const size_t capacity = (encoded.length() * 3) / 4 + 4;
+    uint8_t* decoded = static_cast<uint8_t*>(malloc(capacity));
+    if (!decoded) {
+      storageError("oom");
+      return false;
+    }
+    size_t decodedLength = 0;
+    if (mbedtls_base64_decode(
+          decoded, capacity, &decodedLength,
+          reinterpret_cast<const unsigned char*>(encoded.c_str()), encoded.length()
+        ) != 0) {
+      free(decoded);
+      storageError("base64_decode_failed");
+      return false;
+    }
+    File file = MARAUDER_STORAGE.open(
+      path, operation == "append" ? FILE_APPEND : FILE_WRITE, true
+    );
+    if (!file) {
+      free(decoded);
+      storageError((operation == "append" ? "cannot_open:" : "cannot_create:") + path);
+      return false;
+    }
+    const size_t written = file.write(decoded, decodedLength);
+    file.close();
+    free(decoded);
+    Serial.println(
+      String(operation == "append" ? "SD:APPEND:bytes=" : "SD:WRITE:bytes=") + written
+    );
+    if (written != decodedLength) {
+      storageError("short_write:" + path);
+      return false;
+    }
+    Serial.println(
+      String(operation == "append" ? "SD:OK:appended:" : "SD:OK:created:") + path
+    );
+    return true;
+  }
+
+  if (operation == "crc32" && args.size() >= 3) {
+    String path = args.get(2);
+    if (!storagePath(path) || path == "/") {
+      storageError("invalid_path");
+      return false;
+    }
+    if (buffer_obj.isActiveFile(path)) {
+      storageError("active_file:" + path);
+      return false;
+    }
+    uint64_t size = 0;
+    uint32_t checksum = 0;
+    if (!storageFileCrc32(path, size, checksum)) {
+      storageError("cannot_checksum:" + path);
+      return false;
+    }
+    char crcText[9];
+    snprintf(crcText, sizeof(crcText), "%08lX", static_cast<unsigned long>(checksum));
+    Serial.println("SD:CRC32:" + String(crcText));
+    char sizeText[24];
+    snprintf(sizeText, sizeof(sizeText), "%llu", static_cast<unsigned long long>(size));
+    Serial.println("SD:CRC32:SIZE:" + String(sizeText));
+    Serial.println(F("SD:OK"));
+    return true;
+  }
+
+  if (operation == "ack" && args.size() == 5) {
+    String path = args.get(2);
+    uint64_t expectedSize = 0;
+    uint32_t expectedChecksum = 0;
+    if (!storagePath(path) || path == "/" ||
+        !storageUint64(args.get(3), expectedSize) ||
+        !storageCrc32Value(args.get(4), expectedChecksum)) {
+      storageError("invalid_ack");
+      return false;
+    }
+    if (buffer_obj.isActiveFile(path)) {
+      storageError("active_file:" + path);
+      return false;
+    }
+    uint64_t actualSize = 0;
+    uint32_t actualChecksum = 0;
+    if (!storageFileCrc32(path, actualSize, actualChecksum)) {
+      storageError("cannot_checksum:" + path);
+      return false;
+    }
+    if (actualSize != expectedSize || actualChecksum != expectedChecksum) {
+      storageError("ack_mismatch");
+      return false;
+    }
+    if (!MARAUDER_STORAGE.remove(path)) {
+      storageError("release_failed:" + path);
+      return false;
+    }
+    char crcText[9];
+    snprintf(crcText, sizeof(crcText), "%08lX", static_cast<unsigned long>(actualChecksum));
+    Serial.println("SD:ACK:path=" + path);
+    char sizeText[24];
+    snprintf(sizeText, sizeof(sizeText), "%llu", static_cast<unsigned long long>(actualSize));
+    Serial.println("SD:ACK:size=" + String(sizeText));
+    Serial.println("SD:ACK:crc32=" + String(crcText));
+    Serial.println(F("SD:OK"));
+    return true;
+  }
+
+  if (operation == "mkdir" && args.size() >= 3) {
+    String path = args.get(2);
+    if (!storagePath(path) || path == "/") {
+      storageError("invalid_path");
+      return false;
+    }
+    if (MARAUDER_STORAGE.exists(path) || MARAUDER_STORAGE.mkdir(path)) {
+      Serial.println("SD:OK:mkdir:" + path);
+      return true;
+    }
+    storageError("mkdir_failed:" + path);
+    return false;
+  }
+
+  if (operation == "rm" && args.size() >= 3) {
+    String path = args.get(2);
+    if (!storagePath(path) || path == "/") {
+      storageError("invalid_path");
+      return false;
+    }
+    File target = MARAUDER_STORAGE.open(path);
+    if (!target) {
+      storageError("not_found:" + path);
+      return false;
+    }
+    const bool directory = target.isDirectory();
+    target.close();
+    const bool removed = directory ? MARAUDER_STORAGE.rmdir(path) : MARAUDER_STORAGE.remove(path);
+    if (!removed) {
+      storageError("remove_failed:" + path);
+      return false;
+    }
+    Serial.println("SD:OK:removed:" + path);
+    return true;
+  }
+
+  storageError("unsupported");
+  return false;
+}
+
 void SDInterface::runUpdate(String file_name) {
   if (file_name == "")
     file_name = "/update.bin";
@@ -169,7 +591,7 @@ void SDInterface::runUpdate(String file_name) {
     display_obj.tft.println("Opening " + file_name + "...");
   #endif
 
-  File updateBin = SD.open(file_name);
+  File updateBin = MARAUDER_STORAGE.open(file_name);
 
   if (updateBin) {
     if(updateBin.isDirectory()){

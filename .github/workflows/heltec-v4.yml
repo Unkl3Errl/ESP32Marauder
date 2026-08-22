@@ -2,9 +2,9 @@ name: Build Heltec WiFi LoRa 32 V4
 
 on:
   pull_request:
-    branches: [master]
+    branches: [heltec-v4-full]
   push:
-    branches: [master]
+    branches: [heltec-v4-full]
     tags: ["v*-heltec.*"]
   workflow_dispatch:
 
@@ -30,6 +30,11 @@ jobs:
 
       - name: Install build dependencies
         run: python -m pip install platformio==6.1.19 esptool==4.9.0
+
+      - name: Run Heltec V4 contract tests
+        run: |
+          python -m unittest discover -s tools -p 'test_android_storage_mount.py' -v
+          python -m unittest discover -s tools -p 'test_boot_power_guard_heltec.py' -v
 
       - name: Build Heltec V4 firmware
         run: pio run -e heltec_v4
