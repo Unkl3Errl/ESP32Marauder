@@ -5,6 +5,9 @@ import unittest
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 SD_SOURCE = (PROJECT_DIR / "esp32_marauder/SDInterface.cpp").read_text(encoding="utf-8")
 CONFIG_SOURCE = (PROJECT_DIR / "esp32_marauder/configs.h").read_text(encoding="utf-8")
+BLE_SOURCE = (PROJECT_DIR / "esp32_marauder/MarauderBleSerial.cpp").read_text(
+    encoding="utf-8"
+)
 
 
 class AndroidStorageMountContractTest(unittest.TestCase):
@@ -58,6 +61,15 @@ class AndroidStorageMountContractTest(unittest.TestCase):
         self.assertLess(
             buffer_source.index("if (!saved)"),
             buffer_source.index("bufSizeA = 0;", buffer_source.index("void Buffer::save()")),
+        )
+
+    def test_phone_uart_does_not_pull_nimble_into_other_board_builds(self):
+        guarded = BLE_SOURCE.strip()
+        self.assertTrue(guarded.startswith("#ifdef MARAUDER_HELTEC_V4"))
+        self.assertTrue(guarded.endswith("#endif // MARAUDER_HELTEC_V4"))
+        self.assertLess(
+            guarded.index("#ifdef MARAUDER_HELTEC_V4"),
+            guarded.index("#include <NimBLEDevice.h>"),
         )
 
 

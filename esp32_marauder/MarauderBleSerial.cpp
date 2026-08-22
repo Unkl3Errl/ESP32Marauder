@@ -1,3 +1,5 @@
+#ifdef MARAUDER_HELTEC_V4
+
 #include "MarauderBleSerial.h"
 
 #include <NimBLEDevice.h>
@@ -232,3 +234,5 @@ void MarauderBleSerial::setBleMtu(uint16_t mtu) {
 bool MarauderBleSerial::isBleReady() const {
   return bleReady;
 }
+
+#endif // MARAUDER_HELTEC_V4
