@@ -42,6 +42,9 @@ extern Settings settings_obj;
 class SDInterface {
 
   private:
+    uint64_t androidHostTotalBytes = 0;
+    uint64_t androidHostFreeBytes = 0;
+    bool androidHostCapacityValid = false;
   #if (defined(MARAUDER_M5STICKC) || defined(HAS_CYD_TOUCH) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV))
     SPIClass *spiExt;
   #elif defined(HAS_C5_SD)

@@ -1,5 +1,9 @@
 #include "Buffer.h"
+#include "PcapHeader.h"
 #include "lang_var.h"
+#ifdef HAS_VIRTUAL_SD
+#include "FFat.h"
+#endif
 
 namespace {
 constexpr size_t ANDROID_SPOOL_SEGMENT_BYTES = 128 * 1024;
@@ -46,13 +50,9 @@ void Buffer::open(bool is_pcap){
   writing = true;
 
   if (is_pcap) {
-    write(uint32_t(0xa1b2c3d4)); // magic number
-    write(uint16_t(2)); // major version number
-    write(uint16_t(4)); // minor version number
-    write(int32_t(0)); // GMT to local correction
-    write(uint32_t(0)); // accuracy of timestamps
-    write(uint32_t(SNAP_LEN)); // max length of captured packets, in octets
-    write(uint32_t(105)); // data link type
+    uint8_t header[marauder::kPcapGlobalHeaderSize];
+    marauder::makePcapGlobalHeader(SNAP_LEN, header);
+    write(header, sizeof(header));
   }
 }
 
@@ -205,8 +205,15 @@ void Buffer::write(const uint8_t* buf, uint32_t len){
   }
 }
 
-void Buffer::saveFs(){
+bool Buffer::saveFs(){
   const size_t pending = bufSizeA + bufSizeB;
+  #ifdef HAS_VIRTUAL_SD
+  constexpr size_t SPOOL_WRITE_RESERVE_BYTES = 4096;
+  if (FFat.freeBytes() < pending + SPOOL_WRITE_RESERVE_BYTES) {
+    Serial.println(F("Android spool backpressure; retaining capture data in RAM"));
+    return false;
+  }
+  #endif
   size_t currentSize = 0;
   File current = fs->open(fileName, FILE_READ);
   if (current) {
@@ -229,29 +236,35 @@ void Buffer::saveFs(){
   file = fs->open(fileName, FILE_APPEND);
   if (!file) {
     Serial.println(text02+fileName+"'");
-    return;
+    return false;
   }
 
+  size_t written = 0;
   if(useA){
     if(bufSizeB > 0){
-      file.write(bufB, bufSizeB);
+      written += file.write(bufB, bufSizeB);
     }
     if(bufSizeA > 0){
-      file.write(bufA, bufSizeA);
+      written += file.write(bufA, bufSizeA);
     }
   } else {
     if(bufSizeA > 0){
-      file.write(bufA, bufSizeA);
+      written += file.write(bufA, bufSizeA);
     }
     if(bufSizeB > 0){
-      file.write(bufB, bufSizeB);
+      written += file.write(bufB, bufSizeB);
     }
   }
 
   file.close();
+  if (written != pending) {
+    Serial.println(F("Android spool short write; retaining capture data in RAM"));
+    return false;
+  }
+  return true;
 }
 
-void Buffer::saveSerial() {
+bool Buffer::saveSerial() {
   // Saves to main console UART, user-facing app will ignore these markers
   // Uses / and ] in markers as they are illegal characters for SSIDs
   const char* mark_begin = "[BUF/BEGIN]";
@@ -262,6 +275,7 @@ void Buffer::saveSerial() {
   // Additional buffer and memcpy's so that a single Serial.write() is called
   // This is necessary so that other console output isn't mixed into buffer stream
   uint8_t* buf = (uint8_t*)malloc(mark_begin_len + bufSizeA + bufSizeB + mark_close_len);
+  if (!buf) return false;
   uint8_t* it = buf;
   memcpy(it, mark_begin, mark_begin_len);
   it += mark_begin_len;
@@ -290,6 +304,7 @@ void Buffer::saveSerial() {
   it += mark_close_len;
   Serial.write(buf, it - buf);
   free(buf);
+  return true;
 }
 
 void Buffer::save() {
@@ -300,8 +315,19 @@ void Buffer::save() {
     return;
   }
 
-  if(this->fs) saveFs();
-  if(this->serial) saveSerial();
+  bool saved = this->fs == NULL;
+  if(this->fs) saved = saveFs();
+  if(this->serial) {
+    const bool serialSaved = saveSerial();
+    if (this->fs == NULL) saved = serialSaved;
+  }
+
+  // Never claim the RAM batch was saved when its durable spool write failed.
+  // The next periodic save retries it after Android releases a closed segment.
+  if (!saved) {
+    saving = false;
+    return;
+  }
 
   bufSizeA = 0;
   bufSizeB = 0;

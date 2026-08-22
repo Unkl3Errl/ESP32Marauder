@@ -36,13 +36,17 @@ https://www.online-utility.org/image/convert/to/XBM
   #include "xiaoLED.h"
 #elif defined(MARAUDER_M5STICKC) || defined(MARAUDER_M5STICKCP2)
   #include "stickcLED.h"
-#elif defined(HAS_NEOPIXEL_LED)
+#elif defined(HAS_NEOPIXEL_LED) || defined(HAS_T_DONGLE_LED)
   #include "LedInterface.h"
 #endif
 
 #include "settings.h"
 #include "CommandLine.h"
 #include "lang_var.h"
+
+#ifdef HAS_T_DONGLE_DISPLAY
+  #include "TDongleDisplay.h"
+#endif
 
 #ifdef HAS_BATTERY
   #include "BatteryInterface.h"
@@ -84,6 +88,10 @@ CommandLine cli_obj;
   HeltecStandalone heltec_ui_obj;
 #endif
 
+#ifdef HAS_T_DONGLE_DISPLAY
+  TDongleDisplay t_dongle_display;
+#endif
+
 #ifdef HAS_GPS
   GpsInterface gps_obj;
 #endif
@@ -107,7 +115,7 @@ CommandLine cli_obj;
   xiaoLED xiao_led;
 #elif defined(MARAUDER_M5STICKC) || defined(MARAUDER_M5STICKCP2)
   stickcLED stickc_led;
-#elif defined(HAS_NEOPIXEL_LED)
+#elif defined(HAS_NEOPIXEL_LED) || defined(HAS_T_DONGLE_LED)
   LedInterface led_obj;
 #endif
 
@@ -438,6 +446,10 @@ void setup()
     heltec_ui_obj.setBootStatus("WiFi ready");
   #endif
 
+  #ifdef HAS_T_DONGLE_DISPLAY
+    t_dongle_display.begin();
+  #endif
+
   #ifdef HAS_SCREEN
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
     display_obj.tft.drawCentreString("Initializing...", TFT_WIDTH/2, TFT_HEIGHT * 0.82, 1);
@@ -460,7 +472,7 @@ void setup()
     xiao_led.RunSetup();
   #elif defined(MARAUDER_M5STICKC)
     stickc_led.RunSetup();
-  #elif defined(HAS_NEOPIXEL_LED)
+  #elif defined(HAS_NEOPIXEL_LED) || defined(HAS_T_DONGLE_LED)
     led_obj.RunSetup();
   #endif
 
@@ -494,6 +506,10 @@ void setup()
   menu_function_obj.changeMenu(menu_function_obj.current_menu);*/
 
   wifi_scan_obj.StartScan(WIFI_SCAN_OFF);
+
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.beginBle();
+  #endif
   
   cli_obj.RunSetup();
 
@@ -534,6 +550,14 @@ void loop()
   cli_obj.main(currentTime);
   wifi_scan_obj.main(currentTime);
 
+  #ifdef MARAUDER_HELTEC_V4
+    MarauderSerial.loop();
+  #endif
+
+  #ifdef HAS_T_DONGLE_DISPLAY
+    t_dongle_display.update(currentTime, wifi_scan_obj);
+  #endif
+
   #ifdef HAS_GPS
     gps_obj.main();
   #endif
@@ -560,6 +584,10 @@ void loop()
     xiao_led.main();
   #elif defined(MARAUDER_M5STICKC)
     stickc_led.main();
+  #elif defined(HAS_T_DONGLE_LED)
+    // The LED shares GPIO2/GPIO7 with the display/SD bus. Always make it the
+    // final writer so later SPI activity cannot leave it latched white.
+    led_obj.refresh();
   #elif defined(HAS_NEOPIXEL_LED)
     led_obj.main(currentTime);
   #endif
