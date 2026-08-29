@@ -198,16 +198,21 @@ void CommandLine::filterAccessPoints(String filter) {
   this->showCounts(count_selected, count_unselected);
 }
 
-void CommandLine::startScanFromCLI(int scan_mode, uint16_t color, const char* scan_name) {
-  Serial.print(F("Starting"));
-  Serial.print(scan_name);
-  Serial.print(F(". Stop with "));
-  Serial.println(STOPSCAN_CMD);
+bool CommandLine::startScanFromCLI(int scan_mode, uint16_t color, const char* scan_name) {
   #ifdef HAS_SCREEN
     display_obj.clearScreen();
     menu_function_obj.drawStatusBar();
   #endif
-  wifi_scan_obj.StartScan(scan_mode, color);
+  if (!wifi_scan_obj.StartScan(scan_mode, color)) {
+    Serial.print(F("Failed to start "));
+    Serial.println(scan_name);
+    return false;
+  }
+  Serial.print(F("Started "));
+  Serial.print(scan_name);
+  Serial.print(F(". Stop with "));
+  Serial.println(STOPSCAN_CMD);
+  return true;
 }
 
 void CommandLine::runCommand(String input) {
@@ -695,25 +700,29 @@ void CommandLine::runCommand(String input) {
     else if (cmd_args.get(0) == KARMA_CMD) {
       int pr_sw = this->argSearch(&cmd_args, "-p");
 
-      if (pr_sw == -1) {
+      if (pr_sw == -1 || !this->checkValueExists(&cmd_args, pr_sw)) {
+        Serial.println(F("Karma requires a probe index. Run 'list -p', then use 'karma -p <index>'."));
         return;
       }
 
-      int pr_index = cmd_args.get(pr_sw + 1).toInt();
+      const String pr_index_text = cmd_args.get(pr_sw + 1);
+      for (int i = 0; i < pr_index_text.length(); ++i) {
+        if (!isDigit(pr_index_text.charAt(i))) {
+          Serial.println(F("Karma probe index must be a non-negative number"));
+          return;
+        }
+      }
+      const int pr_index = pr_index_text.toInt();
 
       if ((pr_index < 0) || (pr_index > probe_req_ssids->size() - 1)) {
+        Serial.print(F("Karma probe index is out of range. Available probes: "));
+        Serial.println(probe_req_ssids->size());
         return;
       }
 
       if (evil_portal_obj.setAP(probe_req_ssids->get(pr_index).essid)) {
+        Serial.println("Karma target: " + probe_req_ssids->get(pr_index).essid);
         this->startScanFromCLI(WIFI_SCAN_EVIL_PORTAL, TFT_ORANGE, "Karma Attack");
-        /*Serial.println(STOPSCAN_CMD);
-        #ifdef HAS_SCREEN
-          display_obj.clearScreen();
-          menu_function_obj.drawStatusBar();
-        #endif
-        wifi_scan_obj.StartScan(WIFI_SCAN_EVIL_PORTAL, TFT_ORANGE);*/
-        wifi_scan_obj.setMac();
       }
       else {
         Serial.println(F("Unable to set AP ESSID"));
@@ -726,16 +735,14 @@ void CommandLine::runCommand(String input) {
       int cmd_sw = this->argSearch(&cmd_args, "-c");
       int html_sw = this->argSearch(&cmd_args, "-w");
 
-      if (cmd_sw != -1) {
+      if (cmd_sw != -1 && this->checkValueExists(&cmd_args, cmd_sw)) {
         String et_command = cmd_args.get(cmd_sw + 1);
         if (et_command == "start") {
-          Serial.print(F("Starting Evil Portal. Stop with "));
-          Serial.println(STOPSCAN_CMD);
-          #ifdef HAS_SCREEN
-            display_obj.clearScreen();
-            menu_function_obj.drawStatusBar();
-          #endif
           if (html_sw != -1) {
+            if (!this->checkValueExists(&cmd_args, html_sw)) {
+              Serial.println(F("Missing HTML filename after -w"));
+              return;
+            }
             String target_html_name = cmd_args.get(html_sw + 1);
             evil_portal_obj.target_html_name = target_html_name;
             evil_portal_obj.using_serial_html = false;
@@ -745,7 +752,7 @@ void CommandLine::runCommand(String input) {
           //else {
           //  evil_portal_obj.target_html_name = "index.html";
           //}
-          wifi_scan_obj.StartScan(WIFI_SCAN_EVIL_PORTAL, TFT_MAGENTA);
+          this->startScanFromCLI(WIFI_SCAN_EVIL_PORTAL, TFT_MAGENTA, "Evil Portal");
         }
         else if (et_command == "reset") {
           
@@ -754,6 +761,10 @@ void CommandLine::runCommand(String input) {
           
         }
         else if (et_command == "sethtml") {
+          if (!this->checkValueExists(&cmd_args, cmd_sw + 1)) {
+            Serial.println(F("Missing HTML filename"));
+            return;
+          }
           String target_html_name = cmd_args.get(cmd_sw + 2);
           evil_portal_obj.target_html_name = target_html_name;
           evil_portal_obj.using_serial_html = false;
@@ -774,6 +785,9 @@ void CommandLine::runCommand(String input) {
             evil_portal_obj.ap_index = target_ap_index;
           }
         }
+      }
+      else {
+        Serial.println(HELP_EVIL_PORTAL_CMD);
       }
     }
     else if (cmd_args.get(0) == SCAN_ALL_CMD) {

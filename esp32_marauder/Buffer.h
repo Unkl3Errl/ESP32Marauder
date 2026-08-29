@@ -19,19 +19,19 @@ extern Settings settings_obj;
 class Buffer {
   public:
     Buffer();
-    void pcapOpen(const char* file_name, fs::FS* fs, bool serial);
-    void logOpen(const char* file_name, fs::FS* fs, bool serial);
-    void gpxOpen(const char* file_name, fs::FS* fs, bool serial);
+    bool pcapOpen(const char* file_name, fs::FS* fs, bool serial);
+    bool logOpen(const char* file_name, fs::FS* fs, bool serial);
+    bool gpxOpen(const char* file_name, fs::FS* fs, bool serial);
     void append(wifi_promiscuous_pkt_t *packet, int len);
     void append(String log);
-    void save();
-    void close();
+    bool save();
+    bool close();
     String getFileName();
     bool isActiveFile(const String& path) const;
   private:
-    void createFile(const char* name, bool is_pcap, bool is_gpx = false);
-    void open(bool is_pcap);
-    void openFile(const char* file_name, fs::FS* fs, bool serial, bool is_pcap, bool is_gpx = false);
+    bool createFile(const char* name, bool is_pcap, bool is_gpx = false);
+    bool open(bool is_pcap);
+    bool openFile(const char* file_name, fs::FS* fs, bool serial, bool is_pcap, bool is_gpx = false);
     void add(const uint8_t* buf, uint32_t len, bool is_pcap);
     void write(int32_t n);
     void write(uint32_t n);
@@ -51,6 +51,7 @@ class Buffer {
     bool writing = false; // acceppting writes to buffer
     bool useA = true; // writing to bufA or bufB
     bool saving = false; // currently saving onto the SD card
+    bool closePending = false; // flush must finish before the active file is released
 
     String fileName = "/0.pcap";
     String fileBaseName = "capture";

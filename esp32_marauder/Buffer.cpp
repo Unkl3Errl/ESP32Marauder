@@ -14,7 +14,12 @@ Buffer::Buffer(){
   bufB = (uint8_t*)malloc(BUF_SIZE);
 }
 
-void Buffer::createFile(const char* name, bool is_pcap, bool is_gpx){
+bool Buffer::createFile(const char* name, bool is_pcap, bool is_gpx){
+  if (!fs) {
+    Serial.println(F("Output file error: storage is not mounted"));
+    return false;
+  }
+
   int i=0;
   if (is_pcap) {
     do{
@@ -35,18 +40,33 @@ void Buffer::createFile(const char* name, bool is_pcap, bool is_gpx){
     } while(fs->exists(fileName));
   }
 
-  Serial.println(fileName);
-  
   file = fs->open(fileName, FILE_WRITE);
+  if (!file) {
+    Serial.println("Output file error: could not create " + fileName);
+    return false;
+  }
   file.close();
+
+  if (!fs->exists(fileName)) {
+    Serial.println("Output file error: " + fileName + " was not created");
+    return false;
+  }
+
+  Serial.println("Output file: " + fileName);
+  return true;
 }
 
-void Buffer::open(bool is_pcap){
+bool Buffer::open(bool is_pcap){
+  if (!bufA || !bufB) {
+    Serial.println(F("Output file error: capture buffers are unavailable"));
+    writing = false;
+    return false;
+  }
+
   bufSizeA = 0;
   bufSizeB = 0;
-
-  bufSizeB = 0;
-
+  useA = true;
+  closePending = false;
   writing = true;
 
   if (is_pcap) {
@@ -54,6 +74,8 @@ void Buffer::open(bool is_pcap){
     marauder::makePcapGlobalHeader(SNAP_LEN, header);
     write(header, sizeof(header));
   }
+
+  return true;
 }
 
 String Buffer::getFileName() {
@@ -61,23 +83,17 @@ String Buffer::getFileName() {
 }
 
 bool Buffer::isActiveFile(const String& path) const {
-  return writing && fs != NULL && path == fileName;
+  return (writing || closePending) && fs != NULL && path == fileName;
 }
 
 void Buffer::writePcapHeader(File& target) {
-  const uint8_t header[] = {
-    0xd4, 0xc3, 0xb2, 0xa1,
-    0x02, 0x00, 0x04, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x18, 0x09, 0x00, 0x00,
-    0x69, 0x00, 0x00, 0x00,
-  };
+  uint8_t header[marauder::kPcapGlobalHeaderSize];
+  marauder::makePcapGlobalHeader(SNAP_LEN, header);
   target.write(header, sizeof(header));
 }
 
 void Buffer::rotateFile() {
-  createFile(fileBaseName.c_str(), fileIsPcap, fileIsGpx);
+  if (!createFile(fileBaseName.c_str(), fileIsPcap, fileIsGpx)) return;
   if (!fileIsPcap) return;
   File target = fs->open(fileName, FILE_APPEND);
   if (target) {
@@ -86,40 +102,56 @@ void Buffer::rotateFile() {
   }
 }
 
-void Buffer::openFile(const char* file_name, fs::FS* fs, bool serial, bool is_pcap, bool is_gpx) {
-  close();
+bool Buffer::openFile(const char* file_name, fs::FS* fs, bool serial, bool is_pcap, bool is_gpx) {
+  if (!close()) {
+    Serial.println(F("Output file error: previous output is still waiting to be flushed"));
+    return false;
+  }
+
   bool save_pcap = settings_obj.loadSetting<bool>("SavePCAP");
-  if (!save_pcap) {
+  if (is_pcap && !save_pcap && !serial) {
     this->fs = NULL;
     this->serial = false;
     writing = false;
-    return;
+    Serial.println(F("PCAP output disabled by SavePCAP setting"));
+    return true;
   }
-  this->fs = fs;
+
+  // SavePCAP controls only PCAP files. Explicit logs and GPX tracks must not
+  // silently disappear when packet capture saving is disabled. The -serial
+  // option is also an explicit output request and remains available.
+  this->fs = (is_pcap && !save_pcap) ? NULL : fs;
   this->serial = serial;
   this->fileBaseName = file_name;
   this->fileIsPcap = is_pcap;
   this->fileIsGpx = is_gpx;
   if (this->fs) {
-    createFile(file_name, is_pcap, is_gpx);
+    if (!createFile(file_name, is_pcap, is_gpx)) {
+      this->fs = NULL;
+      this->serial = false;
+      writing = false;
+      return false;
+    }
   }
   if (this->fs || this->serial) {
-    open(is_pcap);
+    return open(is_pcap);
   } else {
     writing = false;
+    Serial.println(F("Output file error: no writable storage or serial output target"));
+    return false;
   }
 }
 
-void Buffer::pcapOpen(const char* file_name, fs::FS* fs, bool serial) {
-  openFile(file_name, fs, serial, true);
+bool Buffer::pcapOpen(const char* file_name, fs::FS* fs, bool serial) {
+  return openFile(file_name, fs, serial, true);
 }
 
-void Buffer::logOpen(const char* file_name, fs::FS* fs, bool serial) {
-  openFile(file_name, fs, serial, false);
+bool Buffer::logOpen(const char* file_name, fs::FS* fs, bool serial) {
+  return openFile(file_name, fs, serial, false);
 }
 
-void Buffer::gpxOpen(const char* file_name, fs::FS* fs, bool serial) {
-  openFile(file_name, fs, serial, false, true);
+bool Buffer::gpxOpen(const char* file_name, fs::FS* fs, bool serial) {
+  return openFile(file_name, fs, serial, false, true);
 }
 
 void Buffer::add(const uint8_t* buf, uint32_t len, bool is_pcap){
@@ -154,15 +186,13 @@ void Buffer::add(const uint8_t* buf, uint32_t len, bool is_pcap){
 }
 
 void Buffer::append(wifi_promiscuous_pkt_t *packet, int len) {
-  bool save_packet = settings_obj.loadSetting<bool>(text_table4[7]);
-  if (save_packet) {
+  if (writing && packet && len > 0) {
     add(packet->payload, len, true);
   }
 }
 
 void Buffer::append(String log) {
-  bool save_packet = settings_obj.loadSetting<bool>(text_table4[7]);
-  if (save_packet) {
+  if (writing && log.length() > 0) {
     add((const uint8_t*)log.c_str(), log.length(), false);
   }
 }
@@ -224,7 +254,7 @@ bool Buffer::saveFs(){
       currentSize + pending > ANDROID_SPOOL_SEGMENT_BYTES) {
     rotateFile();
   } else if (!fs->exists(fileName)) {
-    createFile(fileBaseName.c_str(), fileIsPcap, fileIsGpx);
+    if (!createFile(fileBaseName.c_str(), fileIsPcap, fileIsGpx)) return false;
     if (fileIsPcap) {
       File target = fs->open(fileName, FILE_APPEND);
       if (target) {
@@ -307,12 +337,17 @@ bool Buffer::saveSerial() {
   return true;
 }
 
-void Buffer::save() {
+bool Buffer::save() {
   saving = true;
 
   if((bufSizeA + bufSizeB) == 0){
     saving = false;
-    return;
+    if (closePending) {
+      closePending = false;
+      fs = NULL;
+      serial = false;
+    }
+    return true;
   }
 
   bool saved = this->fs == NULL;
@@ -326,19 +361,24 @@ void Buffer::save() {
   // The next periodic save retries it after Android releases a closed segment.
   if (!saved) {
     saving = false;
-    return;
+    return false;
   }
 
   bufSizeA = 0;
   bufSizeB = 0;
 
   saving = false;
+  if (closePending) {
+    closePending = false;
+    fs = NULL;
+    serial = false;
+  }
+  return true;
 }
 
-void Buffer::close() {
-  if (!writing) return;
-  save();
+bool Buffer::close() {
+  if (!writing && !closePending) return true;
   writing = false;
-  fs = NULL;
-  serial = false;
+  closePending = true;
+  return save();
 }

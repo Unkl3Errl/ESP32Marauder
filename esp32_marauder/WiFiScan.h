@@ -887,6 +887,7 @@ class WiFiScan
     bool save_pcap = false;
     bool ep_deauth = false;
     bool ble_scanning = false;
+    bool scan_start_failed = false;
 
     char* flock_ssid[5] = {
       "flock",
@@ -1066,7 +1067,7 @@ class WiFiScan
     void channelHop(bool filtered = false, bool ranged = false);
     uint8_t currentScanMode = 0;
     void main(uint32_t currentTime);
-    void StartScan(uint8_t scan_mode, uint16_t color = 0);
+    bool StartScan(uint8_t scan_mode, uint16_t color = 0);
     void StopScan(uint8_t scan_mode);
     void setBaseMacAddress(uint8_t macAddr[6]);
 
@@ -1074,9 +1075,9 @@ class WiFiScan
     void tagPOI(const char* label = nullptr);
 
     bool save_serial = false;
-    void startPcap(const char* file_name);
-    void startLog(const char* file_name);
-    void startGPX(const char* file_name);
+    bool startPcap(const char* file_name);
+    bool startLog(const char* file_name);
+    bool startGPX(const char* file_name);
 
     static WiFiEventId_t eventId;
     static String lastClientMAC;

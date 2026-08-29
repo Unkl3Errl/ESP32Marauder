@@ -225,7 +225,7 @@ class CommandLine {
     bool hasSSIDs();
     void showCounts(int selected, int unselected = -1);
     int argSearch(LinkedList<String>* cmd_args, const char* key);
-    void startScanFromCLI(int scan_mode, uint16_t color, const char* scan_name);
+    bool startScanFromCLI(int scan_mode, uint16_t color, const char* scan_name);
 
     const char* ascii_art =
     "\r\n"

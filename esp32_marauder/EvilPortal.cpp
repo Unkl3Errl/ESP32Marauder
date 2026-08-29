@@ -136,14 +136,20 @@ void EvilPortal::setupServer() {
 
 void EvilPortal::setHtmlFromSerial() {
   Serial.println(F("Setting HTML from serial..."));
-  const char *htmlStr = Serial.readString().c_str();
+  const String html = Serial.readString();
+  if (html.length() == 0 || html.length() >= MAX_HTML_SIZE) {
+    Serial.println(F("HTML is empty or too large"));
+    return;
+  }
   #ifdef HAS_PSRAM
+    free(index_html);
     index_html = (char*) ps_malloc(MAX_HTML_SIZE);
+    if (!index_html) {
+      Serial.println(F("Could not allocate memory for HTML"));
+      return;
+    }
   #endif
-  strlcpy(index_html, htmlStr, strlen(htmlStr));
-  #ifdef HAS_PSRAM
-    index_html[MAX_HTML_SIZE - 1] = '\0';
-  #endif
+  strlcpy(index_html, html.c_str(), MAX_HTML_SIZE);
   this->has_html = true;
   this->using_serial_html = true;
   Serial.println("html set");
@@ -169,7 +175,7 @@ bool EvilPortal::setHtml() {
     return false;
   }
   else {
-    if (html_file.size() > MAX_HTML_SIZE) {
+    if (html_file.size() >= MAX_HTML_SIZE) {
       #ifdef HAS_SCREEN
         this->sendToDisplay(F("The given HTML is too large. Touch to exit..."));
       #endif
@@ -184,11 +190,13 @@ bool EvilPortal::setHtml() {
     }
     #ifdef HAS_PSRAM
       index_html = (char*) ps_malloc(MAX_HTML_SIZE);
+      if (!index_html) {
+        Serial.println(F("Could not allocate memory for HTML"));
+        html_file.close();
+        return false;
+      }
     #endif
-    strlcpy(index_html, html.c_str(), strlen(html.c_str()));
-    #ifdef HAS_PSRAM
-      index_html[MAX_HTML_SIZE - 1] = '\0';
-    #endif
+    strlcpy(index_html, html.c_str(), MAX_HTML_SIZE);
     this->has_html = true;
     Serial.println("html set");
     html_file.close();
@@ -244,6 +252,11 @@ bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_
           ap_config.concat(c);
         }
       }
+      if (ap_config.length() >= MAX_AP_NAME_SIZE) {
+        Serial.println(F("The provided AP name is too large. Use stopscan..."));
+        ap_config_file.close();
+        return false;
+      }
       #ifdef HAS_SCREEN
         this->sendToDisplay(F("AP name from config file"));
         this->sendToDisplay("AP name: " + ap_config);
@@ -256,7 +269,7 @@ bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_
   // Priority is SSID list before AP selected and config file
   else if (ssids->size() > 0) {
     ap_config = ssids->get(0).essid;
-    if (ap_config.length() > MAX_AP_NAME_SIZE) {
+    if (ap_config.length() >= MAX_AP_NAME_SIZE) {
       #ifdef HAS_SCREEN
         this->sendToDisplay(F("The given AP name is too large. Touch to exit..."));
       #endif
@@ -270,7 +283,7 @@ bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_
     Serial.println("AP name from SSID list: " + ap_config);
   }
   else if (temp_ap_name != "") {
-    if (temp_ap_name.length() > MAX_AP_NAME_SIZE) {
+    if (temp_ap_name.length() >= MAX_AP_NAME_SIZE) {
       #ifdef HAS_SCREEN
         this->sendToDisplay(F("The given AP name is too large. Touch to exit..."));
       #endif
@@ -293,7 +306,7 @@ bool EvilPortal::setAP(LinkedList<ssid>* ssids, LinkedList<AccessPoint>* access_
   }
 
   if (ap_config != "") {
-    strncpy(apName, ap_config.c_str(), MAX_AP_NAME_SIZE);
+    strlcpy(apName, ap_config.c_str(), sizeof(apName));
     this->has_ap = true;
     Serial.println(F("ap config set"));
     this->ap_index = targ_ap_index;
@@ -308,11 +321,11 @@ bool EvilPortal::setAP(String essid) {
   if (essid == "")
     return false;
 
-  if (essid.length() > MAX_AP_NAME_SIZE) {
+  if (essid.length() >= MAX_AP_NAME_SIZE) {
     return false;
   }
 
-  strncpy(apName, essid.c_str(), MAX_AP_NAME_SIZE);
+  strlcpy(apName, essid.c_str(), sizeof(apName));
   this->has_ap = true;
   Serial.println(F("ap config set"));
   return true;
