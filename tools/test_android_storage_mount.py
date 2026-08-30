@@ -35,8 +35,18 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.0-mobile.6"',
+            '#define MARAUDER_VERSION "v1.15.0-mobile.7"',
             CONFIG_SOURCE,
+        )
+
+    def test_hidden_ap_configuration_enables_ap_mode_first(self):
+        start = WIFI_SOURCE.index("void WiFiScan::throwThatShitInACircle()")
+        end = WIFI_SOURCE.index("// Function for running probe request scan", start)
+        helper = WIFI_SOURCE[start:end]
+        self.assertIn("esp_wifi_set_mode(WIFI_MODE_AP)", helper)
+        self.assertLess(
+            helper.index("esp_wifi_set_mode(WIFI_MODE_AP)"),
+            helper.index("esp_wifi_set_config((wifi_interface_t)WIFI_IF_AP"),
         )
 
     def test_android_capacity_is_reported_separately_from_the_spool(self):
@@ -63,7 +73,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
             self.assertIn(expected, buffer_source)
         self.assertLess(
             buffer_source.index("if (!saved)"),
-            buffer_source.index("bufSizeA = 0;", buffer_source.index("void Buffer::save()")),
+            buffer_source.index("bufSizeA = 0;", buffer_source.index("bool Buffer::save()")),
         )
 
     def test_phone_uart_does_not_pull_nimble_into_other_board_builds(self):
