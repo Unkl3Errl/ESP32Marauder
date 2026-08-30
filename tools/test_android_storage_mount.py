@@ -35,7 +35,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.0-mobile.7"',
+            '#define MARAUDER_VERSION "v1.15.1-mobile.1"',
             CONFIG_SOURCE,
         )
 

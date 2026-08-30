@@ -16,6 +16,7 @@
   #include "SD.h"
   #define MARAUDER_STORAGE SD
 #endif
+#include "SPIFFS.h"
 #ifdef HAS_C5_SD
   #include "SPI.h"
 #endif
@@ -78,6 +79,7 @@ class SDInterface {
     void performUpdate(Stream &updateSource, size_t updateSize);
     bool removeFile(String file_path);
     bool handleStorageCommand(LinkedList<String>& args);
+    bool migrateSPIFFS(uint8_t operation, size_t& files, size_t& bytes, uint8_t& error);
 };
 
 #endif

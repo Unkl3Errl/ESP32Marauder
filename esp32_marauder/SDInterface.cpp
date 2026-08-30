@@ -90,6 +90,123 @@ bool storageFileCrc32(const String& path, uint64_t& size, uint32_t& checksum) {
 void storageError(const String& message) { Serial.println("SD:ERR:" + message); }
 } // namespace
 
+// GCOVR_EXCL_START -- requires mounted SPIFFS and SD filesystems.
+namespace {
+  bool removeTree(fs::FS& fs, const String& path, bool keep_root = false) {
+    if (!fs.exists(path))
+      return true;
+
+    File node = fs.open(path);
+    if (!node)
+      return false;
+
+    if (!node.isDirectory()) {
+      node.close();
+      return fs.remove(path);
+    }
+
+    File child = node.openNextFile();
+    while (child) {
+      String child_path = child.path();
+      child.close();
+      if (!removeTree(fs, child_path)) {
+        node.close();
+        return false;
+      }
+      child = node.openNextFile();
+    }
+
+    node.close();
+    return keep_root || fs.rmdir(path);
+  }
+
+  String joinPath(const String& base, const String& child) {
+    return base == "/" ? "/" + child : base + "/" + child;
+  }
+
+  bool copyTree(
+    fs::FS& source,
+    const String& source_path,
+    fs::FS* destination,
+    const String& destination_path,
+    size_t& files_copied,
+    size_t& bytes_copied,
+    uint8_t& error
+  ) {
+    File source_node = source.open(source_path);
+    if (!source_node) {
+      error = 3;
+      return false;
+    }
+
+    if (!source_node.isDirectory()) {
+      if (destination) {
+        File destination_file = destination->open(destination_path, FILE_WRITE);
+        if (!destination_file) {
+          source_node.close();
+          error = 3;
+          return false;
+        }
+
+        uint8_t buffer[512];
+        while (source_node.available()) {
+          size_t bytes_read = source_node.read(buffer, sizeof(buffer));
+          if (bytes_read == 0 || destination_file.write(buffer, bytes_read) != bytes_read) {
+            source_node.close();
+            destination_file.close();
+            error = 3;
+            return false;
+          }
+          bytes_copied += bytes_read;
+        }
+        destination_file.close();
+      }
+      else
+        bytes_copied += source_node.size();
+      source_node.close();
+      files_copied++;
+      return true;
+    }
+
+    if (destination && destination_path != "/" &&
+        !destination->exists(destination_path) && !destination->mkdir(destination_path)) {
+      source_node.close();
+      error = 3;
+      return false;
+    }
+
+    File child = source_node.openNextFile();
+    while (child) {
+      String child_source_path = child.path();
+      String child_name = child_source_path;
+      if (child_name.startsWith(source_path))
+        child_name.remove(0, source_path.length());
+      while (child_name.startsWith("/"))
+        child_name.remove(0, 1);
+      child.close();
+
+      if (!copyTree(
+        source,
+        child_source_path,
+        destination,
+        joinPath(destination_path, child_name),
+        files_copied,
+        bytes_copied,
+        error
+      )) {
+        source_node.close();
+        return false;
+      }
+      child = source_node.openNextFile();
+    }
+
+    source_node.close();
+    return true;
+  }
+
+}
+// GCOVR_EXCL_STOP
+
 #ifdef HAS_C5_SD
   SDInterface::SDInterface(SPIClass* spi, int cs)
     : _spi(spi), _cs(cs) {}
@@ -196,6 +313,90 @@ bool SDInterface::removeFile(String file_path) {
   else
     return false;
 }
+
+// GCOVR_EXCL_START -- requires mounted SPIFFS and SD filesystems.
+bool SDInterface::migrateSPIFFS(uint8_t operation, size_t& files_copied, size_t& bytes_copied, uint8_t& error) {
+  files_copied = bytes_copied = error = 0;
+
+  if (!this->supported) {
+    error = 1;
+    return false;
+  }
+
+  const String backup_path = "/spiffs";
+  File backup = MARAUDER_STORAGE.open(backup_path);
+  bool valid_backup = backup && backup.isDirectory();
+  backup.close();
+
+  if (operation == 1) {
+    if (!valid_backup) {
+      error = 2;
+      return false;
+    }
+    return copyTree(MARAUDER_STORAGE, backup_path, nullptr, "", files_copied, bytes_copied, error);
+  }
+
+  if (operation == 2) {
+    if (!valid_backup) {
+      error = 2;
+      return false;
+    }
+    const String rollback_path = "/spiffs.restore-rollback";
+    if (!removeTree(MARAUDER_STORAGE, rollback_path)) {
+      error = 3;
+      return false;
+    }
+    size_t rollback_files = 0, rollback_bytes = 0;
+    uint8_t rollback_error = 0;
+    if (!copyTree(SPIFFS, "/", &MARAUDER_STORAGE, rollback_path, rollback_files, rollback_bytes, rollback_error)) {
+      removeTree(MARAUDER_STORAGE, rollback_path);
+      error = 3;
+      return false;
+    }
+    bool cleared = removeTree(SPIFFS, "/", true);
+    if (cleared && copyTree(MARAUDER_STORAGE, backup_path, &SPIFFS, "/", files_copied, bytes_copied, error)) {
+      removeTree(MARAUDER_STORAGE, rollback_path);
+      return true;
+    }
+    removeTree(SPIFFS, "/", true);
+    size_t recovered_files = 0, recovered_bytes = 0;
+    uint8_t recovery_error = 0;
+    copyTree(MARAUDER_STORAGE, rollback_path, &SPIFFS, "/", recovered_files, recovered_bytes, recovery_error);
+    removeTree(MARAUDER_STORAGE, rollback_path);
+    error = 3;
+    return false;
+  }
+
+  const String staging_path = "/spiffs.tmp";
+  const String previous_path = "/spiffs.previous";
+
+  if (!removeTree(MARAUDER_STORAGE, staging_path) || !removeTree(MARAUDER_STORAGE, previous_path)) {
+    error = 3;
+    return false;
+  }
+
+  if (!copyTree(SPIFFS, "/", &MARAUDER_STORAGE, staging_path, files_copied, bytes_copied, error)) {
+    removeTree(MARAUDER_STORAGE, staging_path);
+    return false;
+  }
+
+  if (MARAUDER_STORAGE.exists(backup_path) && !MARAUDER_STORAGE.rename(backup_path, previous_path)) {
+    removeTree(MARAUDER_STORAGE, staging_path);
+    error = 3;
+    return false;
+  }
+
+  if (!MARAUDER_STORAGE.rename(staging_path, backup_path)) {
+    if (MARAUDER_STORAGE.exists(previous_path))
+      MARAUDER_STORAGE.rename(previous_path, backup_path);
+    error = 3;
+    return false;
+  }
+
+  removeTree(MARAUDER_STORAGE, previous_path);
+  return true;
+}
+// GCOVR_EXCL_STOP
 
 void SDInterface::listDirToLinkedList(LinkedList<String>* file_names, String str_dir, String ext) {
   if (this->supported) {
