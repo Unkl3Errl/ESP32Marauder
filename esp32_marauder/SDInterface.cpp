@@ -88,6 +88,38 @@ bool storageFileCrc32(const String& path, uint64_t& size, uint32_t& checksum) {
 }
 
 void storageError(const String& message) { Serial.println("SD:ERR:" + message); }
+
+#ifdef HAS_VIRTUAL_SD
+bool virtualSpoolHasPayload(const String& path, uint8_t depth = 0) {
+  File node = FFat.open(path);
+  if (!node) return true;  // An unreadable entry is never safe to erase.
+  if (!node.isDirectory()) {
+    const bool payload = node.size() > 0;
+    node.close();
+    return payload;
+  }
+  if (depth >= 8) {
+    node.close();
+    return true;
+  }
+  File entry = node.openNextFile();
+  while (entry) {
+    const String childPath = entry.path();
+    const bool directory = entry.isDirectory();
+    const bool payload = directory
+      ? false
+      : entry.size() > 0;
+    entry.close();
+    if (payload || (directory && virtualSpoolHasPayload(childPath, depth + 1))) {
+      node.close();
+      return true;
+    }
+    entry = node.openNextFile();
+  }
+  node.close();
+  return false;
+}
+#endif
 } // namespace
 
 // GCOVR_EXCL_START -- requires mounted SPIFFS and SD filesystems.
@@ -226,6 +258,24 @@ bool SDInterface::initSD() {
       Serial.println(F("Failed to mount Android virtual SD"));
       this->supported = false;
       return false;
+    }
+    /* A FAT volume left by a different firmware can mount successfully while
+       exposing no recoverable payload and no free clusters. formatOnFail
+       cannot repair that state because the mount itself succeeded. Only
+       repair a volume whose visible files are all empty so a genuinely full
+       spool is never erased. */
+    if (FFat.freeBytes() == 0 && !virtualSpoolHasPayload("/")) {
+      Serial.println(F("Repairing unusable Android virtual SD"));
+      FFat.end();
+      char partitionLabel[] = "android";
+      if (!FFat.format(false, partitionLabel) ||
+          !FFat.begin(false, "/android", 10, "android") ||
+          FFat.freeBytes() == 0) {
+        Serial.println(F("Failed to repair Android virtual SD"));
+        FFat.end();
+        this->supported = false;
+        return false;
+      }
     }
     this->supported = true;
     this->cardType = 1;
@@ -649,6 +699,18 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
       storageError("base64_decode_failed");
       return false;
     }
+    uint64_t originalSize = 0;
+    if (operation == "append" && MARAUDER_STORAGE.exists(path)) {
+      File original = MARAUDER_STORAGE.open(path, FILE_READ);
+      if (!original || original.isDirectory()) {
+        if (original) original.close();
+        free(decoded);
+        storageError("cannot_open:" + path);
+        return false;
+      }
+      originalSize = original.size();
+      original.close();
+    }
     File file = MARAUDER_STORAGE.open(
       path, operation == "append" ? FILE_APPEND : FILE_WRITE, true
     );
@@ -660,13 +722,22 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
     const size_t written = file.write(decoded, decodedLength);
     file.close();
     free(decoded);
-    Serial.println(
-      String(operation == "append" ? "SD:APPEND:bytes=" : "SD:WRITE:bytes=") + written
-    );
     if (written != decodedLength) {
       storageError("short_write:" + path);
       return false;
     }
+    uint64_t durableSize = 0;
+    uint32_t durableChecksum = 0;
+    const uint64_t expectedSize =
+      (operation == "append" ? originalSize : 0) + decodedLength;
+    if (!storageFileCrc32(path, durableSize, durableChecksum) ||
+        durableSize != expectedSize) {
+      storageError("durability_check_failed:" + path);
+      return false;
+    }
+    Serial.println(
+      String(operation == "append" ? "SD:APPEND:bytes=" : "SD:WRITE:bytes=") + written
+    );
     Serial.println(
       String(operation == "append" ? "SD:OK:appended:" : "SD:OK:created:") + path
     );

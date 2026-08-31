@@ -14,9 +14,28 @@ WIFI_SOURCE = (PROJECT_DIR / "esp32_marauder/WiFiScan.cpp").read_text(
 
 
 class AndroidStorageMountContractTest(unittest.TestCase):
-    def test_formats_within_the_initial_mount_call(self):
+    def test_mount_recovers_only_a_zero_free_spool_without_payload(self):
         self.assertIn('FFat.begin(true, "/android", 10, "android")', SD_SOURCE)
-        self.assertNotIn("FFat.format(", SD_SOURCE)
+        self.assertIn(
+            'FFat.freeBytes() == 0 && !virtualSpoolHasPayload("/")', SD_SOURCE
+        )
+        self.assertIn("FFat.format(false, partitionLabel)", SD_SOURCE)
+        self.assertIn("Only", SD_SOURCE)
+        self.assertIn("visible files are all empty", SD_SOURCE)
+        self.assertIn("entry.size() > 0", SD_SOURCE)
+        self.assertIn("An unreadable entry is never safe to erase", SD_SOURCE)
+
+    def test_storage_write_requires_durable_readback(self):
+        for expected in (
+            "storageFileCrc32(path, durableSize, durableChecksum)",
+            "durableSize != expectedSize",
+            'storageError("durability_check_failed:" + path)',
+        ):
+            self.assertIn(expected, SD_SOURCE)
+        self.assertLess(
+            SD_SOURCE.index("durableSize != expectedSize"),
+            SD_SOURCE.index("SD:WRITE:bytes="),
+        )
 
     def test_storage_commands_retry_after_boot_mount_failure(self):
         self.assertIn(
@@ -35,7 +54,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.1-mobile.1"',
+            '#define MARAUDER_VERSION "v1.15.1-mobile.2"',
             CONFIG_SOURCE,
         )
 
