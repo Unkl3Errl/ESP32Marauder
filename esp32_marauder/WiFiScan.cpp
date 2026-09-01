@@ -6300,6 +6300,18 @@ void WiFiScan::RunSAEScan(uint8_t scan_mode, uint16_t color) {
 void WiFiScan::throwThatShitInACircle() {
   esp_err_t err;
   wifi_config_t conf;
+
+  // esp_wifi_set_config(WIFI_IF_AP, ...) requires AP mode to be enabled.
+  // Wardrive and Flock used to call this helper immediately after
+  // esp_wifi_init(), while the driver was still in WIFI_MODE_NULL, producing
+  // ESP_ERR_WIFI_MODE (0x3005) on every transition.
+  err = esp_wifi_set_mode(WIFI_MODE_AP);
+  if (err != ESP_OK) {
+    Serial.print(F("AP mode set error: err=0x"));
+    Serial.println(err, HEX);
+    return;
+  }
+
   #ifndef HAS_DUAL_BAND
     err = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
   #else
@@ -6322,7 +6334,7 @@ void WiFiScan::throwThatShitInACircle() {
   err = esp_wifi_set_config((wifi_interface_t)WIFI_IF_AP, &conf);
   if (err != 0)
   {
-    Serial.print(F("AP config set error, Maurauder SSID might visible : err=0x"));
+    Serial.print(F("AP config set error, Marauder SSID might be visible: err=0x"));
     Serial.println(err, HEX);
   }
 }
