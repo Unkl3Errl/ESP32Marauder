@@ -18,7 +18,8 @@ For stable releases, the combine job refuses to create `firmware-manifest.json` 
 
 - Pull requests and relevant pushes to `develop` rebuild and validate the complete installer bundle as short-lived Actions artifacts.
 - Manual dispatch is artifact-only; it does not create, publish, or modify a release.
-- Publishing a non-prerelease GitHub release triggers an independent rebuild from that release tag. Only after all 22 targets and the combined manifest pass does the workflow attach the additive installer assets to the already-published release.
+- Publishing a non-prerelease GitHub release triggers an independent rebuild from that release tag. Only after all 26 targets and the combined manifest pass does the workflow attach the additive installer assets to the already-published release.
+- Repositories without `PRIVATE_TFT_BUILD_TOKEN` still build and validate every public target, then explicitly skip the private handoff and combined bundle. If the secret is configured, dispatch or private-build failures remain fatal so an incomplete authoritative bundle cannot be published.
 - The installer workflow never invokes or replaces the normal release workflow, and it never renames or removes the normal downloadable binaries.
 - Every additive installer binary uses the `esp32_marauder_installer_` namespace so release attachment cannot collide with or overwrite a normal binary filename.
 
