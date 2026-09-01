@@ -288,12 +288,32 @@ jobs:
     needs: prepare
     if: ${{ github.event_name == 'release' && github.event.release.prerelease == false }}
     runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.access.outputs.available }}
     steps:
+      - name: Check private C5 build access
+        id: access
+        env:
+          PRIVATE_TFT_BUILD_TOKEN: ${{ secrets.PRIVATE_TFT_BUILD_TOKEN }}
+        run: |
+          if [[ -n "$PRIVATE_TFT_BUILD_TOKEN" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Private C5 installer targets skipped::PRIVATE_TFT_BUILD_TOKEN is not configured; the public installer targets remain valid, but the combined cross-board bundle will not be published."
+            {
+              echo "### Private C5 installer targets skipped"
+              echo
+              echo 'The `PRIVATE_TFT_BUILD_TOKEN` secret is not configured in this repository.'
+              echo "All public installer targets will still build and validate. The combined bundle is withheld because it must contain every public and private target."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Dispatch exact-source private build
+        if: ${{ steps.access.outputs.available == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_TFT_BUILD_TOKEN }}
         run: |
-          test -n "$GH_TOKEN"
           PAYLOAD=$(jq -n \
             --arg source_sha "${{ needs.prepare.outputs.source_sha }}" \
             --arg release_tag "${{ github.event.release.tag_name }}" \
@@ -309,6 +329,7 @@ jobs:
             'https://api.github.com/repos/justcallmekoko/TFT_eSPI_JCMK/actions/workflows/private-c5-build.yml/dispatches'
 
       - name: Wait for sanitized private C5 installer assets
+        if: ${{ steps.access.outputs.available == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -338,6 +359,7 @@ jobs:
           exit 1
 
       - name: Upload sanitized private installer assets
+        if: ${{ steps.access.outputs.available == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: installer-private-c5-assets
@@ -348,7 +370,7 @@ jobs:
   combine:
     name: Combine authoritative installer manifest
     needs: [build, private-c5]
-    if: ${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+    if: ${{ github.event_name == 'release' && github.event.release.prerelease == false && needs.private-c5.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
