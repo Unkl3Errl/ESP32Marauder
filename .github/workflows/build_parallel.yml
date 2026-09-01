@@ -360,12 +360,30 @@ jobs:
             | AWOK V2 flipper (orange usb) | `_flipper.bin` |
             | AWOK V3 flipper (orange usb) | `_marauder_dev_board_pro.bin` |
 
+      - name: Check private C5 build access
+        id: private_c5_access
+        env:
+          PRIVATE_TFT_BUILD_TOKEN: ${{ secrets.PRIVATE_TFT_BUILD_TOKEN }}
+        run: |
+          if [[ -n "$PRIVATE_TFT_BUILD_TOKEN" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Private C5 release binaries skipped::PRIVATE_TFT_BUILD_TOKEN is not configured; the draft release will contain the public build targets only."
+            {
+              echo "### Private C5 release binaries skipped"
+              echo
+              echo 'The `PRIVATE_TFT_BUILD_TOKEN` secret is not configured in this repository.'
+              echo "The draft release contains all public build targets; proprietary C5 targets were not requested."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Dispatch private C5 builds
+        if: ${{ steps.private_c5_access.outputs.available == 'true' }}
         env:
           PRIVATE_TFT_BUILD_TOKEN: ${{ secrets.PRIVATE_TFT_BUILD_TOKEN }}
           RELEASE_ID: ${{ steps.create_release.outputs.id }}
         run: |
-          test -n "$PRIVATE_TFT_BUILD_TOKEN"
           test -n "$RELEASE_ID"
           [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
           echo "release_id=$RELEASE_ID" >> "$GITHUB_ENV"
@@ -384,6 +402,7 @@ jobs:
             'https://api.github.com/repos/justcallmekoko/TFT_eSPI_JCMK/actions/workflows/private-c5-build.yml/dispatches'
 
       - name: Wait for private C5 binaries
+        if: ${{ steps.private_c5_access.outputs.available == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
