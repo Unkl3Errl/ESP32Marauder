@@ -728,6 +728,7 @@ class WiFiScan
     File poiFile;
     bool poiFileOpen = false;
     String poiFileName = "";
+    String poiFinalFileName = "";
 
     void openPoiFile();
     void closePoiFile();

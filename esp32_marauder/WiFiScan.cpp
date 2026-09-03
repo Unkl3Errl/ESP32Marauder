@@ -5858,16 +5858,29 @@ void WiFiScan::executeWarDrive() {
 void WiFiScan::openPoiFile() {
   #if defined(HAS_GPS) && defined(HAS_SD)
     int fileIndex = 0;
-    while (MARAUDER_STORAGE.exists("/wardrive_poi_" + String(fileIndex) + ".gpx"))
+    do {
+      poiFinalFileName = "/wardrive_poi_" + String(fileIndex) + ".gpx";
+      poiFileName = poiFinalFileName + ".part";
       fileIndex++;
-    poiFileName = "/wardrive_poi_" + String(fileIndex) + ".gpx";
+    } while (MARAUDER_STORAGE.exists(poiFinalFileName) || MARAUDER_STORAGE.exists(poiFileName));
+
     poiFile = MARAUDER_STORAGE.open(poiFileName, FILE_WRITE);
     if (poiFile) {
-      poiFile.print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"ESP32Marauder\">\n");
+      static const char gpxHeader[] =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<gpx version=\"1.1\" creator=\"ESP32Marauder\">\n";
+      const bool headerWritten = poiFile.print(gpxHeader) == sizeof(gpxHeader) - 1;
       poiFile.close();
-      poiFileOpen = true;
-      poiCount = 0;
-    } 
+      if (headerWritten) {
+        poiFileOpen = true;
+        poiCount = 0;
+      } else {
+        sd_obj.removeFile(poiFileName);
+        poiFileName = "";
+        poiFinalFileName = "";
+        Serial.println("Failed to initialize POI GPX file");
+      }
+    }
   #endif
 }
 
@@ -5877,14 +5890,24 @@ void WiFiScan::closePoiFile() {
       if (poiCount > 0) {
         poiFile = MARAUDER_STORAGE.open(poiFileName, FILE_APPEND);
         if (poiFile) {
-          poiFile.print("</gpx>\n");
+          static const char gpxFooter[] = "</gpx>\n";
+          const bool footerWritten = poiFile.print(gpxFooter) == sizeof(gpxFooter) - 1;
           poiFile.close();
+          if (!footerWritten) {
+            Serial.println("Failed to close POI GPX file; retaining temporary file");
+          } else if (!MARAUDER_STORAGE.rename(poiFileName, poiFinalFileName)) {
+            Serial.println("Failed to finalize POI GPX file; retaining temporary file");
+          }
+        } else {
+          Serial.println("Failed to reopen POI GPX file; retaining temporary file");
         }
       } else {
         sd_obj.removeFile(poiFileName);
       }
       poiFileOpen = false;
       poiCount = 0;
+      poiFileName = "";
+      poiFinalFileName = "";
     }
   #endif
 }

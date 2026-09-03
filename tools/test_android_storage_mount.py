@@ -54,8 +54,30 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.1-mobile.2"',
+            '#define MARAUDER_VERSION "v1.15.1-mobile.3"',
             CONFIG_SOURCE,
+        )
+
+    def test_poi_gpx_is_hidden_until_atomically_finalized(self):
+        open_start = WIFI_SOURCE.index("void WiFiScan::openPoiFile()")
+        close_start = WIFI_SOURCE.index("void WiFiScan::closePoiFile()", open_start)
+        tag_start = WIFI_SOURCE.index("void WiFiScan::tagPOI", close_start)
+        open_helper = WIFI_SOURCE[open_start:close_start]
+        close_helper = WIFI_SOURCE[close_start:tag_start]
+
+        self.assertIn('poiFileName = poiFinalFileName + ".part";', open_helper)
+        self.assertIn(
+            "MARAUDER_STORAGE.exists(poiFinalFileName) || MARAUDER_STORAGE.exists(poiFileName)",
+            open_helper,
+        )
+        self.assertIn('static const char gpxFooter[] = "</gpx>\\n";', close_helper)
+        self.assertIn(
+            "MARAUDER_STORAGE.rename(poiFileName, poiFinalFileName)",
+            close_helper,
+        )
+        self.assertLess(
+            close_helper.index("poiFile.print(gpxFooter)"),
+            close_helper.index("MARAUDER_STORAGE.rename(poiFileName, poiFinalFileName)"),
         )
 
     def test_hidden_ap_configuration_enables_ap_mode_first(self):
