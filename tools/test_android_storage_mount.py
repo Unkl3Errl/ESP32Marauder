@@ -11,6 +11,9 @@ BLE_SOURCE = (PROJECT_DIR / "esp32_marauder/MarauderBleSerial.cpp").read_text(
 WIFI_SOURCE = (PROJECT_DIR / "esp32_marauder/WiFiScan.cpp").read_text(
     encoding="utf-8"
 )
+COMMAND_SOURCE = (PROJECT_DIR / "esp32_marauder/CommandLine.cpp").read_text(
+    encoding="utf-8"
+)
 
 
 class AndroidStorageMountContractTest(unittest.TestCase):
@@ -54,7 +57,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.1-mobile.3"',
+            '#define MARAUDER_VERSION "v1.15.1-mobile.4"',
             CONFIG_SOURCE,
         )
 
@@ -79,6 +82,20 @@ class AndroidStorageMountContractTest(unittest.TestCase):
             close_helper.index("poiFile.print(gpxFooter)"),
             close_helper.index("MARAUDER_STORAGE.rename(poiFileName, poiFinalFileName)"),
         )
+
+    def test_wardrive_poi_command_is_reachable_while_scanning(self):
+        handler = COMMAND_SOURCE.index(
+            "if (cmd_args.get(0) == WARDRIVEPOI_CMD)"
+        )
+        idle_only_commands = COMMAND_SOURCE.index("if (!wifi_scan_obj.scanning())")
+
+        self.assertEqual(
+            COMMAND_SOURCE.count("if (cmd_args.get(0) == WARDRIVEPOI_CMD)"),
+            1,
+        )
+        self.assertLess(handler, idle_only_commands)
+        self.assertIn("wifi_scan_obj.tagPOI(label.c_str())", COMMAND_SOURCE)
+        self.assertIn("wifi_scan_obj.tagPOI(nullptr)", COMMAND_SOURCE)
 
     def test_hidden_ap_configuration_enables_ap_mode_first(self):
         start = WIFI_SOURCE.index("void WiFiScan::throwThatShitInACircle()")
