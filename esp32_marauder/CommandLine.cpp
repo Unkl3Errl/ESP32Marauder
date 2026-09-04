@@ -719,6 +719,21 @@ void CommandLine::runCommand(String input) {
   else if (cmd_args.get(0) == REBOOT_CMD)
     ESP.restart();
 
+  // POI tagging is only meaningful during an active wardrive, so it must be
+  // handled outside the command block that is restricted to idle scanners.
+  if (cmd_args.get(0) == WARDRIVEPOI_CMD) {
+    if (cmd_args.size() > 1) {
+      String label = "";
+      for (int i = 1; i < cmd_args.size(); i++) {
+        if (i > 1) label += " ";
+        label += cmd_args.get(i);
+      }
+      wifi_scan_obj.tagPOI(label.c_str());
+    } else {
+      wifi_scan_obj.tagPOI(nullptr);
+    }
+  }
+
   //// WiFi/Bluetooth Scan/Attack commands
   if (!wifi_scan_obj.scanning()) {
     // Dump pcap/log to serial too, valid for all scan/attack commands
@@ -1388,27 +1403,6 @@ void CommandLine::runCommand(String input) {
           Serial.println(getBrightnessLevel());
         }
       #endif
-    }
-
-    // Wardrive POI command
-    else if (cmd_args.get(0) == WARDRIVEPOI_CMD) {
-      if (wifi_scan_obj.currentScanMode == WIFI_SCAN_WAR_DRIVE ||
-          wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) {
-        if (cmd_args.size() > 1) {
-          // Join remaining args as label
-          String label = "";
-          for (int i = 1; i < cmd_args.size(); i++) {
-            if (i > 1) label += " ";
-            label += cmd_args.get(i);
-          }
-          wifi_scan_obj.tagPOI(label.c_str());
-        } else {
-          wifi_scan_obj.tagPOI(nullptr);
-        }
-      } 
-      //else {
-      //  Serial.println(F("No active wardrive. Start wardrive first."));
-      //}
     }
 
     // Update command

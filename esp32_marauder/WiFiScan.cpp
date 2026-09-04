@@ -5915,12 +5915,15 @@ void WiFiScan::closePoiFile() {
 void WiFiScan::tagPOI(const char* label) {
   #if defined(HAS_GPS) && defined(HAS_SD)
     if (currentScanMode != WIFI_SCAN_WAR_DRIVE && currentScanMode != WIFI_SCAN_STATION_WAR_DRIVE) {
+      Serial.println("POI tag failed: no active wardrive");
       return;
     }
     if (!gps_obj.getFixStatus()) {
+      Serial.println("POI tag failed: GPS has no fix");
       return;
     }
     if (!poiFileOpen) {
+      Serial.println("POI tag failed: POI file is unavailable");
       return;
     }
     poiCount++;
