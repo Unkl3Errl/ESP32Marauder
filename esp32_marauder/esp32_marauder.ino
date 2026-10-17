@@ -42,6 +42,7 @@ https://www.online-utility.org/image/convert/to/XBM
 
 #include "settings.h"
 #include "CommandLine.h"
+#include "ReconMission.h"
 #include "lang_var.h"
 
 #ifdef HAS_T_DONGLE_DISPLAY
@@ -75,6 +76,9 @@ https://www.online-utility.org/image/convert/to/XBM
   #if (C_BTN >= 0)
     Switches c_btn = Switches(C_BTN, 1000, C_PULL);
   #endif
+  #if defined(MARAUDER_POOM) && (B_BTN >= 0)
+    Switches b_btn = Switches(B_BTN, 1000, B_PULL);
+  #endif
 
 #endif
 
@@ -83,6 +87,7 @@ EvilPortal evil_portal_obj;
 Buffer buffer_obj;
 Settings settings_obj;
 CommandLine cli_obj;
+ReconMission recon_obj;
 
 #ifdef HAS_HELTEC_STANDALONE
   HeltecStandalone heltec_ui_obj;
@@ -122,7 +127,11 @@ CommandLine cli_obj;
 const String PROGMEM version_number = MARAUDER_VERSION;
 
 #ifdef HAS_NEOPIXEL_LED
-  Adafruit_NeoPixel strip = Adafruit_NeoPixel(Pixels, PIN, NEO_GRB + NEO_KHZ800);
+  #ifdef MARAUDER_POOM
+    PoomWs2812 strip(Pixels, PIN);
+  #else
+    Adafruit_NeoPixel strip = Adafruit_NeoPixel(Pixels, PIN, NEO_GRB + NEO_KHZ800);
+  #endif
 #endif
 
 uint32_t currentTime  = 0;
@@ -259,9 +268,7 @@ void runBootPowerGuard() {
     #ifdef HAS_SCREEN
       #if defined(MARAUDER_MINI) || defined(MARAUDER_MINI_V3)
         digitalWrite(TFT_BL, LOW);
-      #endif
-    
-      #if !defined(MARAUDER_MINI) && !defined(MARAUDER_MINI_V3)
+      #elif !defined(MARAUDER_POOM)
         digitalWrite(TFT_BL, HIGH);
       #endif
     #endif
@@ -271,9 +278,7 @@ void runBootPowerGuard() {
     #ifdef HAS_SCREEN
       #if defined(MARAUDER_MINI) || defined(MARAUDER_MINI_V3)
         digitalWrite(TFT_BL, HIGH);
-      #endif
-    
-      #if !defined(MARAUDER_MINI) && !defined(MARAUDER_MINI_V3)
+      #elif !defined(MARAUDER_POOM)
         digitalWrite(TFT_BL, LOW);
       #endif
     #endif
@@ -293,13 +298,6 @@ void setup()
     esp_log_level_set("*", ESP_LOG_NONE);
   #endif
   
-  // BOARD_HAS_PSRAM makes the Arduino core initialize the Heltec V4's PSRAM
-  // before setup(). Calling the low-level initializer a second time can panic
-  // the ESP32-S3 and leave it in a watchdog-reset loop.
-  #if !defined(HAS_IDF_3) && !defined(MARAUDER_HELTEC_V4)
-    esp_spiram_init();
-  #endif
-
   Serial.begin(115200);
 
   #ifdef MARAUDER_HELTEC_V4
@@ -332,7 +330,7 @@ void setup()
     digitalWrite(POWER_HOLD_PIN, HIGH);
   #endif
   
-  #ifdef HAS_SCREEN
+  #if defined(HAS_SCREEN) && !defined(MARAUDER_POOM)
     pinMode(TFT_BL, OUTPUT);
   #endif
   
@@ -343,7 +341,7 @@ void setup()
   #endif
   
   // Preset SPI CS pins to avoid bus conflicts
-  #ifdef HAS_SCREEN
+  #if defined(HAS_SCREEN) && !defined(MARAUDER_POOM)
     digitalWrite(TFT_CS, HIGH);
   #endif
   
@@ -391,15 +389,7 @@ void setup()
   #endif
 
   #ifdef HAS_SCREEN
-    #if !defined(MARAUDER_CARDPUTER) && !defined(MARAUDER_CARDPUTER_ADV)
-      display_obj.tft.drawCentreString("ESP32 Marauder", TFT_WIDTH/2, TFT_HEIGHT * 0.33, 1);
-      display_obj.tft.drawCentreString("JustCallMeKoko", TFT_WIDTH/2, TFT_HEIGHT * 0.5, 1);
-      display_obj.tft.drawCentreString(display_obj.version_number, TFT_WIDTH/2, TFT_HEIGHT * 0.66, 1);
-    #else
-      display_obj.tft.drawCentreString("ESP32 Marauder", TFT_HEIGHT/2, TFT_WIDTH * 0.33, 1);
-      display_obj.tft.drawCentreString("JustCallMeKoko", TFT_HEIGHT/2, TFT_WIDTH * 0.5, 1);
-      display_obj.tft.drawCentreString(display_obj.version_number, TFT_HEIGHT/2, TFT_WIDTH * 0.66, 1);
-    #endif
+    display_obj.drawBootSplash();
   #endif
 
 
@@ -448,11 +438,6 @@ void setup()
 
   #ifdef HAS_T_DONGLE_DISPLAY
     t_dongle_display.begin();
-  #endif
-
-  #ifdef HAS_SCREEN
-    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.tft.drawCentreString("Initializing...", TFT_WIDTH/2, TFT_HEIGHT * 0.82, 1);
   #endif
 
   evil_portal_obj.setup();
@@ -549,6 +534,7 @@ void loop()
   // Update all of our objects
   cli_obj.main(currentTime);
   wifi_scan_obj.main(currentTime);
+  recon_obj.main(currentTime);
 
   #ifdef MARAUDER_HELTEC_V4
     MarauderSerial.loop();
@@ -590,6 +576,10 @@ void loop()
     led_obj.refresh();
   #elif defined(HAS_NEOPIXEL_LED)
     led_obj.main(currentTime);
+  #endif
+
+  #ifdef MARAUDER_POOM
+    display_obj.tft.display();
   #endif
 
   #ifdef HAS_SCREEN

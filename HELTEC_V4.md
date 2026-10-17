@@ -1,6 +1,6 @@
 # ESP32 Marauder for Heltec WiFi LoRa 32 V4
 
-This target adapts ESP32 Marauder to the Heltec WiFi LoRa 32 V4's built-in
+This target adapts ESP32 Marauder 1.18.0 to the Heltec WiFi LoRa 32 V4's built-in
 128x64 OLED, PRG/USER button, 16 MB flash, 2 MB PSRAM, and optional GPS port.
 It keeps Marauder's serial CLI while adding a compact standalone menu.
 
@@ -99,3 +99,17 @@ provides guarded command shortcuts, structured AP/BLE results, CSV export,
 independent multi-device sessions, and background virtual-SD draining while
 the screen is off. The same package can identify Bruce- or GhostESP-flashed
 boards and keep their separate sessions active at the same time.
+
+## 1.18.0 integration
+
+The `v1.18.0-mobile.1` source integrates the complete upstream stable release
+while retaining the Heltec OLED controls, phone-facing BLE UART, boot power
+guard, shared 3 MiB capture spool at `0xCF0000`, and size/CRC-acknowledged archive
+protocol. Recon sessions and Remote ID routes use the same virtual storage.
+Active recon files are protected from archive acknowledgment; Remote ID GPX
+routes retain a `.part` suffix until the completed route is published, with
+per-device fragments retained if finalization fails.
+
+Target compilation and host regression checks do not replace board tests.
+Exercise interrupted storage handoff, USB/BLE reconnect, and two-device isolation
+before promoting this build to the signed controller recovery catalog.

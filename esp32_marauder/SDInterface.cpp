@@ -1,8 +1,18 @@
 #include "SDInterface.h"
+#include "ReconMission.h"
+
+extern ReconMission recon_obj;
 #include "lang_var.h"
 #include "mbedtls/base64.h"
 
 namespace {
+bool storageFileIsActive(const String& path) {
+  // Partial GPX routes and per-device fragments remain available for recovery.
+  return buffer_obj.isActiveFile(path) || recon_obj.isActiveFile(path) ||
+         path.endsWith(".part") ||
+         (path.startsWith("/remoteid_") && path.endsWith(".tmp"));
+}
+
 bool storagePath(String& path) {
   path.trim();
   if (path.length() == 0 || path.length() > 240) return false;
@@ -316,11 +326,11 @@ bool SDInterface::initSD() {
       #endif
       Serial.println(F("Using external SPI configuration..."));
       this->spiExt->begin(SPI_SCK, SPI_MISO, SPI_MOSI, SD_CS);
-      if (!SD.begin(SD_CS, *(this->spiExt))) {
+      if (!MARAUDER_STORAGE.begin(SD_CS, *(this->spiExt))) {
     #elif defined(HAS_C5_SD)
-      if (!SD.begin(SD_CS, *_spi)) {
+      if (!MARAUDER_STORAGE.begin(SD_CS, *_spi)) {
     #else
-      if (!SD.begin(SD_CS)) {
+      if (!MARAUDER_STORAGE.begin(SD_CS)) {
     #endif
       Serial.println(F("Failed to mount SD Card"));
       this->supported = false;
@@ -328,8 +338,8 @@ bool SDInterface::initSD() {
     }
     else {
       this->supported = true;
-      this->cardType = SD.cardType();
-      this->cardSizeMB = SD.cardSize() / (1024 * 1024);
+      this->cardType = MARAUDER_STORAGE.cardType();
+      this->cardSizeMB = MARAUDER_STORAGE.cardSize() / (1024 * 1024);
     }
     #endif
 
@@ -474,6 +484,33 @@ void SDInterface::listDirToLinkedList(LinkedList<String>* file_names, String str
   }
 }
 
+bool SDInterface::listDirectory(String path, LinkedList<SDDirectoryEntry>* entries) {
+  if (!this->supported || entries == nullptr)
+    return false;
+
+  File dir = MARAUDER_STORAGE.open(path);
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return false;
+  }
+
+  File entry = dir.openNextFile();
+  while (entry) {
+    String entry_path = entry.path();
+    String entry_name = entry_path;
+    int slash = entry_name.lastIndexOf('/');
+    if (slash >= 0)
+      entry_name = entry_name.substring(slash + 1);
+
+    entries->add(SDDirectoryEntry{entry_name, entry_path, entry.isDirectory()});
+    entry.close();
+    entry = dir.openNextFile();
+  }
+
+  dir.close();
+  return true;
+}
+
 void SDInterface::listDir(String str_dir){
   if (this->supported) {
     File dir = MARAUDER_STORAGE.open(str_dir);
@@ -553,8 +590,8 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
       Serial.println("SD:STATUS:spool_free=" + String(FFat.freeBytes()));
     #else
       Serial.println(F("SD:STATUS:type=physical"));
-      Serial.println("SD:STATUS:total=" + String(SD.totalBytes()));
-      Serial.println("SD:STATUS:free=" + String(SD.totalBytes() - SD.usedBytes()));
+      Serial.println("SD:STATUS:total=" + String(MARAUDER_STORAGE.totalBytes()));
+      Serial.println("SD:STATUS:free=" + String(MARAUDER_STORAGE.totalBytes() - MARAUDER_STORAGE.usedBytes()));
     #endif
     Serial.println(F("SD:OK"));
     return true;
@@ -679,7 +716,7 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
       storageError("invalid_path");
       return false;
     }
-    if (buffer_obj.isActiveFile(path)) {
+    if (storageFileIsActive(path)) {
       storageError("active_file:" + path);
       return false;
     }
@@ -750,7 +787,7 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
       storageError("invalid_path");
       return false;
     }
-    if (buffer_obj.isActiveFile(path)) {
+    if (storageFileIsActive(path)) {
       storageError("active_file:" + path);
       return false;
     }
@@ -780,7 +817,7 @@ bool SDInterface::handleStorageCommand(LinkedList<String>& args) {
       storageError("invalid_ack");
       return false;
     }
-    if (buffer_obj.isActiveFile(path)) {
+    if (storageFileIsActive(path)) {
       storageError("active_file:" + path);
       return false;
     }
@@ -884,11 +921,18 @@ void SDInterface::runUpdate(String file_name) {
     size_t updateSize = updateBin.size();
 
     if (updateSize > 0) {
+      if (!this->validateUpdate(updateBin)) {
+        updateBin.close();
+        return;
+      }
       #ifdef HAS_SCREEN
         display_obj.tft.println(F(text_table2[1]));
       #endif
-      Serial.println(F("Starting update over SD. Please wait..."));
-      this->performUpdate(updateBin, updateSize);
+      Serial.println(F("Starting update over MARAUDER_STORAGE. Please wait..."));
+      if (!this->performUpdate(updateBin, updateSize)) {
+        updateBin.close();
+        return;
+      }
     }
     else {
       #ifdef HAS_SCREEN
@@ -899,6 +943,7 @@ void SDInterface::runUpdate(String file_name) {
       #ifdef HAS_SCREEN
         display_obj.tft.setTextColor(TFT_WHITE);
       #endif
+      updateBin.close();
       return;
     }
 
@@ -908,11 +953,16 @@ void SDInterface::runUpdate(String file_name) {
     #ifdef HAS_SCREEN
       display_obj.tft.println(F(text_table2[3]));
     #endif
-    const esp_partition_t *running = esp_ota_get_running_partition();
-
     const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
-
-    esp_err_t result = esp_ota_set_boot_partition(next);
+    if (next == nullptr || esp_ota_set_boot_partition(next) != ESP_OK) {
+      #ifdef HAS_SCREEN
+        display_obj.tft.setTextColor(TFT_RED);
+        display_obj.tft.println(F("Could not select updated firmware"));
+        display_obj.tft.setTextColor(TFT_WHITE);
+      #endif
+      Serial.println(F("Update verified but boot partition selection failed"));
+      return;
+    }
      
     ESP.restart();
   }
@@ -928,7 +978,68 @@ void SDInterface::runUpdate(String file_name) {
   }
 }
 
-void SDInterface::performUpdate(Stream &updateSource, size_t updateSize) {
+bool SDInterface::validateUpdate(File &updateBin) {
+  MarauderFirmware::MetadataScanner scanner;
+  uint8_t buffer[512];
+  updateBin.seek(0);
+
+  while (updateBin.available() && !scanner.found()) {
+    size_t bytes_read = updateBin.read(buffer, sizeof(buffer));
+    for (size_t i = 0; i < bytes_read && !scanner.found(); i++)
+      scanner.push(buffer[i]);
+  }
+
+  updateBin.seek(0);
+
+  #ifdef ALLOW_UNVERIFIED_SD_UPDATE
+    if (!scanner.found()) {
+      Serial.println(F("WARNING: firmware identity missing; developer override accepted update"));
+      return true;
+    }
+  #endif
+
+  if (!scanner.found()) {
+    #ifdef HAS_SCREEN
+      display_obj.tft.setTextColor(TFT_RED);
+      display_obj.tft.println(F("Rejected: not a validated Marauder image"));
+      display_obj.tft.setTextColor(TFT_WHITE);
+    #endif
+    Serial.println(F("Rejected SD update: Marauder firmware identity not found"));
+    return false;
+  }
+
+  const MarauderFirmware::Metadata &candidate = scanner.metadata();
+  const MarauderFirmware::Metadata &current = MarauderFirmware::currentMetadata();
+  if (!MarauderFirmware::metadataMatches(candidate, current)) {
+    #ifdef ALLOW_UNVERIFIED_SD_UPDATE
+      Serial.println(F("WARNING: firmware identity mismatch; developer override accepted update"));
+      return true;
+    #else
+      #ifdef HAS_SCREEN
+        display_obj.tft.setTextColor(TFT_RED);
+        display_obj.tft.println(F("Rejected: firmware is for another device"));
+        display_obj.tft.setTextColor(TFT_WHITE);
+      #endif
+      Serial.print(F("Rejected SD update: expected "));
+      Serial.print(current.hardware);
+      Serial.print(F("/"));
+      Serial.print(current.chip);
+      Serial.print(F(", got "));
+      Serial.print(candidate.hardware);
+      Serial.print(F("/"));
+      Serial.println(candidate.chip);
+      return false;
+    #endif
+  }
+
+  Serial.print(F("Validated SD update for "));
+  Serial.print(candidate.hardware);
+  Serial.print(F("/"));
+  Serial.println(candidate.chip);
+  return true;
+}
+
+bool SDInterface::performUpdate(Stream &updateSource, size_t updateSize) {
   if (Update.begin(updateSize)) {   
     #ifdef HAS_SCREEN
       display_obj.tft.println(text_table2[5] + String(updateSize));
@@ -952,10 +1063,12 @@ void SDInterface::performUpdate(Stream &updateSource, size_t updateSize) {
       Serial.print(F("/"));
       Serial.print(updateSize);
       Serial.println(F(". Retry?"));
+      Update.abort();
+      return false;
     }
     if (Update.end()) {
       if (Update.isFinished()) {
-
+        return true;
       }
       else {
         #ifdef HAS_SCREEN
@@ -966,6 +1079,7 @@ void SDInterface::performUpdate(Stream &updateSource, size_t updateSize) {
         #ifdef HAS_SCREEN
           display_obj.tft.setTextColor(TFT_WHITE);
         #endif
+        return false;
       }
     }
     else {
@@ -974,6 +1088,7 @@ void SDInterface::performUpdate(Stream &updateSource, size_t updateSize) {
       #endif
       Serial.print(F("Error Occurred. Error #: "));
       Serial.println(Update.getError());
+      return false;
     }
 
   }
@@ -983,5 +1098,6 @@ void SDInterface::performUpdate(Stream &updateSource, size_t updateSize) {
       display_obj.tft.println(text_table2[14]);
     #endif
     Serial.println(F("Not enough space to begin OTA"));
+    return false;
   }
 }

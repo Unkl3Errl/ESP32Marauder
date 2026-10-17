@@ -57,7 +57,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
 
     def test_version_identifies_the_storage_fix(self):
         self.assertIn(
-            '#define MARAUDER_VERSION "v1.15.1-mobile.4"',
+            '#define MARAUDER_VERSION "v1.18.0-mobile.1"',
             CONFIG_SOURCE,
         )
 
@@ -98,7 +98,7 @@ class AndroidStorageMountContractTest(unittest.TestCase):
         self.assertIn("wifi_scan_obj.tagPOI(nullptr)", COMMAND_SOURCE)
 
     def test_hidden_ap_configuration_enables_ap_mode_first(self):
-        start = WIFI_SOURCE.index("void WiFiScan::throwThatShitInACircle()")
+        start = WIFI_SOURCE.index("bool WiFiScan::throwThatShitInACircle()")
         end = WIFI_SOURCE.index("// Function for running probe request scan", start)
         helper = WIFI_SOURCE[start:end]
         self.assertIn("esp_wifi_set_mode(WIFI_MODE_AP)", helper)
