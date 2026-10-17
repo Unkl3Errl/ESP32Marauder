@@ -1,4 +1,7 @@
 #include "LedInterface.h"
+#ifdef HAS_T_DONGLE_LED
+  #include "TDongleBus.h"
+#endif
 
 
 LedInterface::LedInterface() {
@@ -84,7 +87,13 @@ void LedInterface::refresh() {
 
 void LedInterface::setColor(int r, int g, int b) {
   #ifdef HAS_NEOPIXEL_LED
-    strip.setPixelColor(0, strip.Color(r, g, b));
+    #ifdef MARAUDER_POOM
+      for (uint8_t pixel = 0; pixel < Pixels; ++pixel) {
+        strip.setPixelColor(pixel, strip.Color(r, g, b));
+      }
+    #else
+      strip.setPixelColor(0, strip.Color(r, g, b));
+    #endif
     strip.show();
   #endif
   #ifdef HAS_T_DONGLE_LED
@@ -96,6 +105,9 @@ void LedInterface::setColor(int r, int g, int b) {
 #ifdef HAS_T_DONGLE_LED
 void LedInterface::writeApa102Color(uint8_t red, uint8_t green, uint8_t blue) {
   const uint8_t brightness = (red || green || blue) ? 10 : 0;
+
+  deselectTDongleSharedSpi(T_DONGLE_TFT_CS_PIN, SD_CS);
+
   this->t_dongle_led.startFrame();
   this->t_dongle_led.sendColor(red, green, blue, brightness);
   this->t_dongle_led.endFrame(1);
@@ -116,7 +128,13 @@ void LedInterface::ledOff() {
 
 void LedInterface::rainbow() {
   #ifdef HAS_NEOPIXEL_LED
-    strip.setPixelColor(0, this->Wheel((0 * 256 / 100 + this->wheel_pos) % 256));
+    #ifdef MARAUDER_POOM
+      for (uint8_t pixel = 0; pixel < Pixels; ++pixel) {
+        strip.setPixelColor(pixel, this->Wheel((pixel * 256 / Pixels + this->wheel_pos) % 256));
+      }
+    #else
+      strip.setPixelColor(0, this->Wheel((0 * 256 / 100 + this->wheel_pos) % 256));
+    #endif
     strip.show();
 
     this->current_fade_itter++;

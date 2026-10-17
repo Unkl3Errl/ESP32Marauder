@@ -27,6 +27,7 @@ class Buffer {
     bool save();
     bool close();
     String getFileName();
+    void setDirectory(const char* path);
     bool isActiveFile(const String& path) const;
   private:
     bool createFile(const char* name, bool is_pcap, bool is_gpx = false);
@@ -41,7 +42,7 @@ class Buffer {
     bool saveSerial();
     void rotateFile();
     void writePcapHeader(File& target);
-    
+
     uint8_t* bufA;
     uint8_t* bufB;
 
@@ -53,6 +54,7 @@ class Buffer {
     bool saving = false; // currently saving onto the SD card
     bool closePending = false; // flush must finish before the active file is released
 
+    const char* directory = NULL;
     String fileName = "/0.pcap";
     String fileBaseName = "capture";
     bool fileIsPcap = false;

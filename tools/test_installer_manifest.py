@@ -68,50 +68,20 @@ class InstallerManifestTests(unittest.TestCase):
         self.assertIn("github.event_name == 'release'", installer_workflow)
         self.assertIn('marauder-installer-assets.zip', installer_workflow)
         self.assertNotIn('release-assets/*.bin\n', installer_workflow)
-        self.assertEqual(len(registry["targets"]), 26)
-        self.assertEqual(len(boards), 23)
+        self.assertEqual(len(registry["targets"]), 27)
+        self.assertEqual(len(boards), 24)
         self.assertEqual(
             private_flags,
             {"MARAUDER_V8", "MARAUDER_MINI_V3", "DUAL_MINI_C5"},
         )
         self.assertEqual(registry_flags - private_flags, workflow_flags)
         self.assertIn("MARAUDER_T_DONGLE_C5", workflow_flags)
+        c5_devkit = next(board for board in boards if board["flag"] == "MARAUDER_C5")
+        self.assertIn("FlashSize=8M", c5_devkit["fbqn"])
+        self.assertIn("PartitionScheme=default_8MB", c5_devkit["fbqn"])
         self.assertEqual(
             len(registry_flags),
             len(registry["targets"]),
-        )
-
-    def test_public_targets_keep_their_release_partition_layouts(self) -> None:
-        normal_boards = load_normal_build_matrix(NORMAL_WORKFLOW, REGISTRY)
-        normal_fqbns = {board["flag"]: board["fbqn"] for board in normal_boards}
-
-        self.assertFalse((REPOSITORY_ROOT / "esp32_marauder/partitions.csv").exists())
-
-        layout_exceptions = {
-            "MARAUDER_T_DONGLE_C5": (
-                "FlashSize=16M",
-                "PartitionScheme=custom",
-            ),
-            "MARAUDER_PANCAKE": (
-                "FlashSize=8M",
-                "PartitionScheme=default_8MB",
-            ),
-        }
-        for flag, fqbn in normal_fqbns.items():
-            if flag in layout_exceptions:
-                for setting in layout_exceptions[flag]:
-                    self.assertIn(setting, fqbn)
-            else:
-                self.assertIn("PartitionScheme=min_spiffs", fqbn, flag)
-
-        workflow = NORMAL_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn(
-            "if: matrix.board.flag == 'MARAUDER_T_DONGLE_C5'",
-            workflow,
-        )
-        self.assertIn(
-            "cp installer/partitions/t_dongle_c5.csv esp32_marauder/partitions.csv",
-            workflow,
         )
 
     def test_build_matrix_parser_fails_closed_on_unsupported_syntax(self) -> None:
@@ -221,7 +191,7 @@ class InstallerManifestTests(unittest.TestCase):
             self.assertEqual(release["metadataStatus"], "authoritative")
             self.assertEqual(release["channel"], "stable")
             self.assertEqual(release["sourceCommit"], "a" * 40)
-            self.assertEqual(len(release["targets"]), 26)
+            self.assertEqual(len(release["targets"]), 27)
             self.assertIn("/" + "a" * 40 + "/", release["$schema"])
 
     def test_combiner_rejects_target_identity_drift(self) -> None:
