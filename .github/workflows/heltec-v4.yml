@@ -36,6 +36,9 @@ jobs:
           python -m unittest discover -s tools -p 'test_android_storage_mount.py' -v
           python -m unittest discover -s tools -p 'test_boot_power_guard_heltec.py' -v
 
+      - name: Verify Remote ID storage publication
+        run: python tools/test_remote_id_storage.py
+
       - name: Build Heltec V4 firmware
         run: pio run -e heltec_v4
 
